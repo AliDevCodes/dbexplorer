@@ -1,6 +1,7 @@
 using System.Windows;
 using FastDbExplorer.Application.Abstractions;
 using FastDbExplorer.Infrastructure;
+using FastDbExplorer.Infrastructure.CoordinateLayers;
 using FastDbExplorer.Infrastructure.Maps;
 using FastDbExplorer.Wpf.Services;
 using FastDbExplorer.Wpf.ViewModels;
@@ -29,6 +30,8 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
         builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
         builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
+        builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();
+        builder.Services.AddSingleton<ICoordinateLayerStore>(_ => new JsonCoordinateLayerStore());
         builder.Services.AddSingleton<IFileDialogService, FileDialogService>();
         builder.Services.AddSingleton<ConnectionViewModel>();
         builder.Services.AddSingleton<MapViewModel>();

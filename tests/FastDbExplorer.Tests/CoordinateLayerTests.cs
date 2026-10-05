@@ -28,7 +28,7 @@ internal static class XlsxBuilder
             return i;
         }
 
-        var maxCols = Math.Max(1, rows.Length == 0 ? 1 : rows.Max(r => r.Length));
+        var maxCols = rows.Length == 0 ? 1 : Math.Max(1, rows.Max(r => r.Length));
         var lastCol = (char)('A' + maxCols - 1);
 
         var sheet = new StringBuilder();
@@ -48,7 +48,8 @@ internal static class XlsxBuilder
                         sheet.Append($"<c r=\"{reference}\" t=\"s\"><v>{Index(s)}</v></c>");
                         break;
                     case double d:
-                        sheet.Append($"<c r=\"{reference}\"><v>{d.ToString("R", CultureInfo.InvariantCulture)}</v></c>");
+                        var number = d.ToString("R", CultureInfo.InvariantCulture);
+                        sheet.Append($"<c r=\"{reference}\"><v>{number}</v></c>");
                         break;
                     default:
                         throw new ArgumentException("Only string, double and null cells are supported.");
@@ -62,8 +63,8 @@ internal static class XlsxBuilder
 
         var sst = new StringBuilder();
         sst.Append($"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><sst xmlns=\"{Main}\" count=\"{shared.Count}\" uniqueCount=\"{shared.Count}\">");
-        foreach (var s in shared)
-            sst.Append("<si><t xml:space=\"preserve\">").Append(System.Security.SecurityElement.Escape(s)).Append("</t></si>");
+        foreach (var text in shared)
+            sst.Append("<si><t xml:space=\"preserve\">").Append(System.Security.SecurityElement.Escape(text)).Append("</t></si>");
         sst.Append("</sst>");
 
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
@@ -136,7 +137,7 @@ public sealed class ExcelImportTests : IDisposable
         Assert.Equal("Tehran Sites", layer.Name);
         Assert.Equal("Tehran Sites.xlsx", layer.FileName);
         Assert.True(layer.Visibility);
-        Assert.Equal(0, layer.RadiusMeters);
+        Assert.Equal(0.0, layer.RadiusMeters);
         Assert.Equal(2, layer.Points.Count);
         Assert.All(layer.Points, p => Assert.Equal(layer.Id, p.LayerId));
         Assert.Equal(2, layer.Points.Select(p => p.Id).Distinct().Count());
@@ -208,7 +209,7 @@ public sealed class ExcelImportTests : IDisposable
         Assert.Equal(7, result.RowsRead);
         Assert.Equal(2, result.RowsImported);
         Assert.Equal(5, result.RowsSkipped);
-        Assert.Equal(["Ok 1", "Edge"], result.Layer!.Points.Select(p => p.Name).ToArray());
+        Assert.Equal(new[] { "Ok 1", "Edge" }, result.Layer!.Points.Select(p => p.Name).ToArray());
 
         var byRow = result.Issues.ToDictionary(i => i.Row!.Value);
         Assert.Equal(5, byRow.Count);
@@ -375,13 +376,13 @@ public class MapLayerTests
         var layer = new MapLayer(id, "L", "l.xlsx", [Point(id)]);
 
         Assert.True(layer.Visibility);
-        Assert.Equal(0, layer.RadiusMeters);
+        Assert.Equal(0.0, layer.RadiusMeters);
     }
 
     [Theory]
-    [InlineData(0)]
+    [InlineData(0.0)]
     [InlineData(250.5)]
-    [InlineData(20_037_508)]
+    [InlineData(20_037_508.0)]
     public void Valid_radius_is_stored_in_metres(double radius)
     {
         var id = Guid.NewGuid();
@@ -391,10 +392,10 @@ public class MapLayerTests
     }
 
     [Theory]
-    [InlineData(-1)]
+    [InlineData(-1.0)]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
-    [InlineData(20_037_509)]
+    [InlineData(20_037_509.0)]
     public void Invalid_radius_is_rejected(double radius)
     {
         var id = Guid.NewGuid();
@@ -402,7 +403,7 @@ public class MapLayerTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => layer.RadiusMeters = radius);
         Assert.Throws<ArgumentOutOfRangeException>(() => new MapLayer(id, "L", "l.xlsx", [Point(id)], true, radius));
-        Assert.Equal(0, layer.RadiusMeters);
+        Assert.Equal(0.0, layer.RadiusMeters);
     }
 
     [Fact]
@@ -413,11 +414,11 @@ public class MapLayerTests
     }
 
     [Theory]
-    [InlineData(91, 0)]
-    [InlineData(-91, 0)]
-    [InlineData(0, 181)]
-    [InlineData(0, -181)]
-    [InlineData(double.NaN, 0)]
+    [InlineData(91.0, 0.0)]
+    [InlineData(-91.0, 0.0)]
+    [InlineData(0.0, 181.0)]
+    [InlineData(0.0, -181.0)]
+    [InlineData(double.NaN, 0.0)]
     public void Out_of_range_coordinates_are_rejected(double lat, double lon)
     {
         var id = Guid.NewGuid();
@@ -476,14 +477,14 @@ public sealed class JsonCoordinateLayerStoreTests : IDisposable
         await store.SaveAsync(layer);
 
         layer.Visibility = true;
-        layer.RadiusMeters = 42;
+        layer.RadiusMeters = 42.0;
         await store.SaveAsync(layer);
 
         Assert.Single(Directory.GetFiles(_dir, "*.json"));
         Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
         var loaded = Assert.Single(await store.LoadAllAsync());
         Assert.True(loaded.Visibility);
-        Assert.Equal(42, loaded.RadiusMeters);
+        Assert.Equal(42.0, loaded.RadiusMeters);
     }
 
     [Fact]
@@ -514,7 +515,7 @@ public sealed class JsonCoordinateLayerStoreTests : IDisposable
 
         var names = (await store.LoadAllAsync()).Select(l => l.Name).ToArray();
 
-        Assert.Equal(["alpha", "Zeta"], names);
+        Assert.Equal(new[] { "alpha", "Zeta" }, names);
     }
 
     [Fact]
@@ -536,8 +537,7 @@ public sealed class JsonCoordinateLayerStoreTests : IDisposable
     public async Task A_file_that_breaks_the_layer_rules_is_skipped()
     {
         var store = NewStore();
-        var layer = Sample();
-        await store.SaveAsync(layer);
+        await store.SaveAsync(Sample());
         var path = Directory.GetFiles(_dir, "*.json").Single();
         var text = await File.ReadAllTextAsync(path);
         Assert.Contains("\"radiusMeters\":1500.5", text);

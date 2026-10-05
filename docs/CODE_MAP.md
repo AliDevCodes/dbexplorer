@@ -14,3 +14,8 @@
 
 ## Map module
 `MapView.xaml(.cs)` (WebView2 host, tile interception) · `MapViewModel` · `MapSourceFactory` → `MbTilesMapSource` / `MvtLayerReader` · `Assets/Map/map.html` (MapLibre page + generic style) · `FileDialogService`. Details: PROJECT_MASTER_CONTEXT §5 and §9.
+
+## Excel coordinate layers (Phase 1, headless)
+**Import:** `IExcelImportService` -> `ExcelCoordinateImportService.Import` (ExcelDataReader, first sheet, header Name/Latitude/Longitude) -> `CoordinateImportResult` (`MapLayer` or `ImportIssue` codes).
+**Persistence:** `ICoordinateLayerStore` -> `JsonCoordinateLayerStore` -> `%AppData%\FastDbExplorer\coordinate-layers\{id}.json`.
+**Models/rules:** `Domain/CoordinateLayers.cs` (`MapPoint`, `MapLayer`, `CoordinateRules`). **Tests:** `CoordinateLayerTests.cs`. Status and limits: `CURRENT_STATE.md`.
