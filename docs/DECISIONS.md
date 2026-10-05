@@ -1,0 +1,15 @@
+# Decisions
+- 2026: WPF kept (per Master Context); modern look comes from custom styles, no UI NuGet package.
+- UI is Persian RTL; technical fields (server, names, lists) are forced LTR.
+- Theme follows Windows automatically via registry + `UserPreferenceChanged`.
+- Recent connections saved WITHOUT passwords.
+- `TrustServerCertificate` defaults to ON for internal servers (self-signed certs); user can turn it off.
+- System databases (id 1-4) hidden from the list.
+- Row counts come from `sys.partitions` (approximate, instant) instead of `COUNT(*)`.
+- WPF code must write `System.Windows.Application` in full: the namespace `FastDbExplorer.Application` shadows the short name.
+- MVP-02 paging is hybrid (owner's choice): OFFSET first, keyset for depth. No COUNT(*) ever; "has next page" comes from fetching pageSize+1 rows.
+- No primary key -> the user must pick the order column (owner's choice); such tables use OFFSET only and ties are not guaranteed stable.
+- Default isolation level is untouched (READ COMMITTED). NOLOCK was NOT used because it can return wrong data; revisit if production blocking appears.
+- Filtering is limited to common types (numbers, dates, text, guid, bit). Other types can be shown but not filtered.
+- `ReadOnlySqlGuard` ignores [quoted identifiers] and 'literals', so columns named [Update]/[Delete] work.
+- Map decisions D13–D19 are in PROJECT_MASTER_CONTEXT §7 (MapLibre+WebView2, assets via setup-map-assets.cmd, GMDB = GMap.NET raster cache, OSM PBF needs converter, labels via local glyph files, worker tile interception).
