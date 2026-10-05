@@ -30,6 +30,7 @@ public sealed record FilterCondition(string Column, FilterOperator Operator, str
 /// <summary>
 /// One page request. Paging is OFFSET-based when <see cref="AfterKey"/> is null,
 /// otherwise keyset-based ("rows after this key"), which stays fast on very deep pages.
+/// <see cref="RequiredFilters"/> are always AND-ed with the user filters (used by monitors for the "since last check" window).
 /// </summary>
 public sealed record PageRequest(
     string Database,
@@ -42,7 +43,8 @@ public sealed record PageRequest(
     bool UseKeyset,
     int PageSize,
     long Offset,
-    object?[]? AfterKey);
+    object?[]? AfterKey,
+    IReadOnlyList<FilterCondition>? RequiredFilters = null);
 
 public sealed record PageResult(
     IReadOnlyList<string> Columns,

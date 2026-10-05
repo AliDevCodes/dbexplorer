@@ -29,7 +29,8 @@ public static class SelectQueryBuilder
 
         if (request.Columns.Count == 0) throw new ArgumentException("Select at least one column.");
         if (request.OrderBy.Count == 0) throw new ArgumentException("An ORDER BY column is required for paging.");
-        if (request.Filters.Count > MaxFilters) throw new ArgumentException($"At most {MaxFilters} filters are allowed.");
+        if (request.Filters.Count + (request.RequiredFilters?.Count ?? 0) > MaxFilters)
+            throw new ArgumentException($"At most {MaxFilters} filters are allowed.");
         if (request.AfterKey is not null && (!request.UseKeyset || request.AfterKey.Length != request.OrderBy.Count))
             throw new ArgumentException("Invalid keyset position.");
 
@@ -51,6 +52,8 @@ public static class SelectQueryBuilder
         var filters = request.Filters.Select(f => BuildFilter(f, Col(f.Column), Add)).ToList();
         if (filters.Count > 0)
             where.Add("(" + string.Join(request.Logic == FilterLogic.And ? " AND " : " OR ", filters) + ")");
+        if (request.RequiredFilters is { Count: > 0 })
+            where.AddRange(request.RequiredFilters.Select(f => BuildFilter(f, Col(f.Column), Add)).ToList());
         if (request.AfterKey is not null)
             where.Add(BuildKeyset(request, Col, Add));
 
