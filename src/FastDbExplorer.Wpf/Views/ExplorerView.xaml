@@ -4,6 +4,24 @@
              xmlns:views="clr-namespace:FastDbExplorer.Wpf.Views">
   <UserControl.Resources>
     <DataTemplate DataType="{x:Type vm:TableQueryViewModel}"><views:TableQueryView /></DataTemplate>
+
+    <!-- Labelled pill button (map icon + text) so the map shortcut is easy to spot -->
+    <Style x:Key="MapPillButton" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource AccentSoftBrush}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="10" Padding="10,6">
+              <ContentPresenter VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </UserControl.Resources>
   <Grid>
     <Grid.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3" /></Storyboard></BeginStoryboard></EventTrigger></Grid.Triggers>
@@ -30,9 +48,13 @@
               <TextBlock Text="{x:Static l:Strings.ConnectedReadOnly}" Style="{StaticResource Muted}" Margin="8,0,0,0" />
             </StackPanel>
           </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button Style="{StaticResource IconButton}" Content="&#xE774;" FontSize="16"
-                    ToolTip="{x:Static l:Strings.OpenMap}" Command="{Binding OpenMapCommand}" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <Button Style="{StaticResource MapPillButton}" ToolTip="{x:Static l:Strings.OpenMap}" Command="{Binding OpenMapCommand}" Margin="0,0,6,0">
+              <StackPanel Orientation="Horizontal">
+                <views:MapIcon Width="18" Height="18" Foreground="{DynamicResource AccentBrush}" />
+                <TextBlock Text="{x:Static l:Strings.Map}" FontWeight="SemiBold" Margin="8,0,0,0" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
             <Button Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16"
                     ToolTip="{x:Static l:Strings.Disconnect}" Command="{Binding DisconnectCommand}" />
           </StackPanel>

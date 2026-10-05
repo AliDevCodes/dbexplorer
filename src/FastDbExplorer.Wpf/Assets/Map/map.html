@@ -117,7 +117,8 @@ function load(i, dark) {
   // Start view is always Iran (see IRAN_VIEW); the file's own centre/bounds are only used by "Fit to map".
   map = new maplibregl.Map({ container: 'map', style: buildStyle(i, dark), center: IRAN_VIEW.center, zoom: IRAN_VIEW.zoom,
     attributionControl: false, renderWorldCopies: false, maxZoom: 22 });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-left');
+  // Zoom in/out + compass sit at the top RIGHT of the map (the window buttons are top right too; the app icon/name are top left).
+  map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map.on('mousemove', (e) => {
     if (pendingMove) return;
