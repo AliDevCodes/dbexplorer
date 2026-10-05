@@ -28,6 +28,7 @@ public sealed partial class ExplorerViewModel : ObservableObject
 
     public event Action? Disconnected;
     public event Action? OpenMapRequested;
+    public event Action? OpenMonitoringRequested;
 
     public string ServerName => _settings.Server;
     public ObservableCollection<DatabaseInfo> Databases { get; }
@@ -60,6 +61,9 @@ public sealed partial class ExplorerViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenMap() => OpenMapRequested?.Invoke();
+
+    [RelayCommand]
+    private void OpenMonitoring() => OpenMonitoringRequested?.Invoke();
 
     [RelayCommand]
     private Task ReloadAsync() => LoadTablesAsync(SelectedDatabase);

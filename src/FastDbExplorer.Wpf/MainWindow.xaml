@@ -14,6 +14,7 @@
     <DataTemplate DataType="{x:Type vm:ConnectionViewModel}"><views:ConnectionView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ExplorerViewModel}"><views:ExplorerView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:MapViewModel}"><views:MapView /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:MonitoringViewModel}"><views:MonitoringView /></DataTemplate>
 
     <!-- Flat caption button; the hover colour comes from BorderBrush so the close button can use red -->
     <Style x:Key="CaptionButton" TargetType="Button">

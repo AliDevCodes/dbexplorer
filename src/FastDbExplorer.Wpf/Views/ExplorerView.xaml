@@ -5,7 +5,7 @@
   <UserControl.Resources>
     <DataTemplate DataType="{x:Type vm:TableQueryViewModel}"><views:TableQueryView /></DataTemplate>
 
-    <!-- Labelled pill button (map icon + text) so the map shortcut is easy to spot -->
+    <!-- Labelled pill button (icon + text) so the shortcuts are easy to spot -->
     <Style x:Key="MapPillButton" TargetType="Button">
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Template">
@@ -39,6 +39,7 @@
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Margin="0,0,0,18">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <StackPanel VerticalAlignment="Center">
             <TextBlock Text="{Binding ServerName}" FlowDirection="LeftToRight" HorizontalAlignment="Left" FontWeight="SemiBold"
@@ -48,15 +49,22 @@
               <TextBlock Text="{x:Static l:Strings.ConnectedReadOnly}" Style="{StaticResource Muted}" Margin="8,0,0,0" />
             </StackPanel>
           </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-            <Button Style="{StaticResource MapPillButton}" ToolTip="{x:Static l:Strings.OpenMap}" Command="{Binding OpenMapCommand}" Margin="0,0,6,0">
+          <Button Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16"
+                  ToolTip="{x:Static l:Strings.Disconnect}" Command="{Binding DisconnectCommand}" VerticalAlignment="Center" />
+
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,14,0,0">
+            <Button Style="{StaticResource MapPillButton}" ToolTip="{x:Static l:Strings.OpenMap}" Command="{Binding OpenMapCommand}" Margin="0,0,8,0">
               <StackPanel Orientation="Horizontal">
                 <views:MapIcon Width="18" Height="18" Foreground="{DynamicResource AccentBrush}" />
                 <TextBlock Text="{x:Static l:Strings.Map}" FontWeight="SemiBold" Margin="8,0,0,0" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
-            <Button Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16"
-                    ToolTip="{x:Static l:Strings.Disconnect}" Command="{Binding DisconnectCommand}" />
+            <Button Style="{StaticResource MapPillButton}" ToolTip="{x:Static l:MonitoringStrings.Title}" Command="{Binding OpenMonitoringCommand}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE823;" FontFamily="{StaticResource IconFont}" FontSize="15" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{x:Static l:MonitoringStrings.OpenMonitoring}" FontWeight="SemiBold" Margin="8,0,0,0" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
           </StackPanel>
         </Grid>
 
