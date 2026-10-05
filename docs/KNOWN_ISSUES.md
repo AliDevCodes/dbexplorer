@@ -14,3 +14,5 @@
 - Filter values use invariant culture: dates like 2025-01-31, decimals with a dot.
 - A page-size change applies on the next "Run" (current paging keeps its snapshot).
 - Map slice 1 never compiled/run. GMDB unknown. OSM PBF not rendered (converter planned). No map labels. WebView2 runtime required.
+- Monitoring (see MONITORING.md): never compiled/run. `SELECT MAX(col)` on an un-indexed column of a huge table scans it (30 s timeout) — choose an indexed watermark column. Number (identity) watermarks can miss rows committed out of order; date columns are protected by a 30 s settle time. Monitors only run while the app is open and connected. Alert history is memory only. Updated rows are detected only if the watermark column changes on update.
+- Monitoring glyphs `E823` (sidebar) and `E7BA` (toast) must be checked on Windows 10.

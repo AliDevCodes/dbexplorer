@@ -28,6 +28,7 @@ public static class MonitoringStrings
     public const string BaselineSet = "نقطه‌ی شروع ثبت شد؛ از این پس رکوردهای جدید بررسی می‌شوند.";
     public const string NoNewMatches = "رکورد جدیدِ مطابق شرط نبود.";
     public const string Checking = "در حال بررسی…";
+    public const string ErrorPrefix = "⚠ ";
 
     public const string EditorTitleNew = "پایش جدید";
     public const string EditorTitleEdit = "ویرایش پایش";
@@ -36,7 +37,7 @@ public static class MonitoringStrings
     public const string Table = "جدول";
     public const string Target = "جدول موردنظر";
     public const string WatermarkColumn = "ستون تشخیص رکورد جدید";
-    public const string WatermarkHint = "ستونی با مقدار افزایشی (شناسه یا تاریخ ثبت/تغییر) که برای پیداکردن رکوردهای جدید از آخرین بررسی استفاده می‌شود. همان نام ستون در هر جدول ممکن است متفاوت باشد؛ از فهرست انتخاب کنید.";
+    public const string WatermarkHint = "ستونی با مقدار افزایشی که برای پیدا کردن رکوردهای جدید از آخرین بررسی استفاده می‌شود. نام این ستون در هر جدول ممکن است متفاوت باشد؛ از فهرست انتخاب کنید. توصیه: ستون تاریخ ثبت (مثل CreatedAt) دقیق‌تر است؛ کلید عددی افزایشی اگر چند تراکنش هم‌زمان بنویسند ممکن است رکوردی را از قلم بیندازد. ستون باید ایندکس داشته باشد (در جدول بزرگ بدون ایندکس بررسی کند می‌شود).";
     public const string Conditions = "شرط‌ها (مثلاً مکان، مبدا، مقصد)";
     public const string AddCondition = "+ افزودن شرط";
     public const string Interval = "بازه‌ی بررسی (دقیقه)";
@@ -73,6 +74,8 @@ public static class MonitoringStrings
             : $"{count:N0} رکورد جدید مطابق شرط";
 
     public static string ToastTitle(string monitorName) => $"هشدار: {monitorName}";
+
+    public static string ToastErrorTitle(string monitorName) => $"خطا در پایش: {monitorName}";
 
     public static string CheckFailed(string reason) => $"بررسی ناموفق بود: {reason}";
 }

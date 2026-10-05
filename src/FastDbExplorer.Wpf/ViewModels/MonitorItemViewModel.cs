@@ -26,6 +26,9 @@ public sealed partial class MonitorItemViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsNotConfirmingDelete))]
     private bool _isConfirmingDelete;
 
+    /// <summary>Failed checks in a row (memory only). Used to alert on the first failure without repeating every interval.</summary>
+    public int ConsecutiveFailures { get; set; }
+
     public string Name => Definition.Name;
     public string Target => Definition.TargetText;
     public string IntervalText => MonitoringStrings.EveryMinutes(Definition.IntervalMinutes);

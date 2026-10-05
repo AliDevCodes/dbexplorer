@@ -5,9 +5,10 @@ namespace FastDbExplorer.Infrastructure.Monitoring;
 
 /// <summary>
 /// One check = "which records appeared since the last check, and which of them match the user's conditions?".
-/// Steps: read MAX(watermark) once, query only the window (last, max] with the conditions on the server,
+/// Steps: read MAX(watermark) once, query only the window (last, upper] with the conditions on the server,
 /// page through the matches (OFFSET, ordered by watermark + primary key, capped), write the Excel report.
 /// The first check only records the starting point, so old data never floods the user with alerts.
+/// For date watermarks the newest <see cref="MonitorDefinition.SettleSeconds"/> are held back (see <see cref="SettleUpper"/>).
 /// </summary>
 public sealed class MonitorCheckService(IDatabaseMetadataService metadata, IWatermarkReader watermarks, IReportWriter reports)
     : IMonitorCheckService
@@ -29,7 +30,8 @@ public sealed class MonitorCheckService(IDatabaseMetadataService metadata, IWate
         var selected = columns.Where(c => c.IsFilterable).Select(c => c.Name).ToList();
         if (selected.Count == 0) throw new ArgumentException("The table has no readable columns.");
 
-        var upper = await watermarks.GetMaxAsync(settings, monitor.Database, monitor.Schema, monitor.Table, watermark.Name, ct);
+        var reading = await watermarks.ReadAsync(settings, monitor.Database, monitor.Schema, monitor.Table, watermark.Name, ct);
+        var upper = SettleUpper(reading, watermark.TypeName, monitor.SettleSeconds);
 
         // First successful check: remember where we are, do not alert for existing data.
         if (monitor.LastWatermark is null && monitor.LastCheckedUtc is null)
@@ -78,5 +80,21 @@ public sealed class MonitorCheckService(IDatabaseMetadataService metadata, IWate
             reportPath = await reports.WriteAsync(monitor.Name, checkedAt, selected, rows, monitor.OutputFolder, ct);
 
         return new MonitorCheckResult(monitor.Id, checkedAt, selected, rows, truncated, next, reportPath, false);
+    }
+
+    /// <summary>
+    /// Upper end of the checked window. A row with a slightly older date can be committed a moment after a newer one
+    /// (parallel transactions); if the window ended exactly at MAX such a row would be skipped forever. So for date
+    /// columns the end is min(MAX, server time - settle). It can only delay a row (never lose it): an idle table is
+    /// still reported once the settle time has passed, and a column in another time zone just waits longer.
+    /// Number columns (identity) have no clock, so they are used as they are.
+    /// </summary>
+    public static string? SettleUpper(WatermarkReading reading, string typeName, int settleSeconds)
+    {
+        if (reading.Max is null || settleSeconds <= 0 || reading.ServerNow is not { } now || !WatermarkTypes.IsDate(typeName))
+            return reading.Max;
+
+        var limit = WatermarkTypes.Format(now.AddSeconds(-settleSeconds));
+        return WatermarkComparer.Compare(reading.Max, limit, typeName) > 0 ? limit : reading.Max;
     }
 }

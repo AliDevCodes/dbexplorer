@@ -5,14 +5,14 @@ using Microsoft.Data.SqlClient;
 namespace FastDbExplorer.Infrastructure.Monitoring;
 
 /// <summary>
-/// SELECT MAX(column) on an increasing number / date column. With an index (primary key, created-at) this is
-/// a single seek, so it adds almost no load. Read-only: the command goes through <see cref="ReadOnlySqlGuard"/>.
+/// SELECT MAX(column), SYSDATETIME() on an increasing number / date column. With an index (primary key, created-at)
+/// this is a single seek, so it adds almost no load. Read-only: the command goes through <see cref="ReadOnlySqlGuard"/>.
 /// </summary>
 public sealed class SqlServerWatermarkReader(IDatabaseMetadataService metadata) : IWatermarkReader
 {
     private const int CommandTimeoutSeconds = 30;
 
-    public async Task<string?> GetMaxAsync(
+    public async Task<WatermarkReading> ReadAsync(
         ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct)
     {
         var columns = await metadata.GetColumnsAsync(settings, database, schema, table, ct);
@@ -21,7 +21,7 @@ public sealed class SqlServerWatermarkReader(IDatabaseMetadataService metadata) 
         if (!WatermarkTypes.IsSupported(info.TypeName))
             throw new NotSupportedException($"Column '{column}' ({info.TypeName}) cannot be used to detect new records.");
 
-        var sql = $"SELECT MAX({SelectQueryBuilder.Quote(info.Name)}) FROM {SelectQueryBuilder.Quote(schema)}.{SelectQueryBuilder.Quote(table)}";
+        var sql = $"SELECT MAX({SelectQueryBuilder.Quote(info.Name)}), SYSDATETIME() FROM {SelectQueryBuilder.Quote(schema)}.{SelectQueryBuilder.Quote(table)}";
         ReadOnlySqlGuard.EnsureReadOnly(sql);
 
         try
@@ -31,8 +31,12 @@ public sealed class SqlServerWatermarkReader(IDatabaseMetadataService metadata) 
             await using var command = connection.CreateCommand();
             command.CommandText = sql;
             command.CommandTimeout = CommandTimeoutSeconds;
-            var value = await command.ExecuteScalarAsync(ct);
-            return value is null or DBNull ? null : WatermarkTypes.Format(value);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) return new WatermarkReading(null, null);
+
+            var max = await reader.IsDBNullAsync(0, ct) ? null : WatermarkTypes.Format(reader.GetValue(0));
+            DateTime? now = await reader.IsDBNullAsync(1, ct) ? null : reader.GetDateTime(1);
+            return new WatermarkReading(max, now);
         }
         catch (SqlException) when (ct.IsCancellationRequested)
         {

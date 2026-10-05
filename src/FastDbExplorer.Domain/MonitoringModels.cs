@@ -9,7 +9,10 @@ public static class WatermarkTypes
     private static readonly HashSet<string> Supported =
         ["bigint", "int", "smallint", "tinyint", "date", "datetime", "datetime2", "smalldatetime"];
 
+    private static readonly HashSet<string> DateTypes = ["date", "datetime", "datetime2", "smalldatetime"];
+
     public static bool IsSupported(string typeName) => Supported.Contains(typeName);
+    public static bool IsDate(string typeName) => DateTypes.Contains(typeName);
 
     /// <summary>Culture-independent text of a watermark value (stored in the monitor file, parsed back by ValueConverter).</summary>
     public static string Format(object value) => value switch
@@ -20,9 +23,13 @@ public static class WatermarkTypes
     };
 }
 
+/// <summary>MAX of the watermark column and the SQL Server clock, read in the same query.</summary>
+public sealed record WatermarkReading(string? Max, DateTime? ServerNow);
+
 /// <summary>
 /// One user-defined monitor: which table, which conditions, how often, where the Excel report goes.
 /// It never contains a password. <see cref="LastWatermark"/> / <see cref="LastCheckedUtc"/> are the only state.
+/// <see cref="SettleSeconds"/>: for date watermarks the newest N seconds are held back, so rows committed a moment late are not skipped.
 /// </summary>
 public sealed record MonitorDefinition(
     Guid Id,
@@ -39,7 +46,8 @@ public sealed record MonitorDefinition(
     bool PlaySound,
     bool Enabled,
     string? LastWatermark = null,
-    DateTime? LastCheckedUtc = null)
+    DateTime? LastCheckedUtc = null,
+    int SettleSeconds = 30)
 {
     public const int MinIntervalMinutes = 1;
     public const int MaxIntervalMinutes = 1440;

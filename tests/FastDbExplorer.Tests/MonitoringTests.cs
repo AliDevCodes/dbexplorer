@@ -100,12 +100,13 @@ public class MonitoringTests
         try
         {
             var store = new JsonMonitorStore(path);
-            var original = Monitor("42", new DateTime(2026, 10, 5, 8, 0, 0, DateTimeKind.Utc), 120);
+            var original = Monitor("42", new DateTime(2026, 10, 5, 8, 0, 0, DateTimeKind.Utc), 120) with { SettleSeconds = 45 };
             await store.SaveAsync([original]);
 
             var loaded = (await store.LoadAsync()).Single();
             Assert.Equal(original.Id, loaded.Id);
             Assert.Equal(120, loaded.IntervalMinutes);
+            Assert.Equal(45, loaded.SettleSeconds);
             Assert.Equal("42", loaded.LastWatermark);
             Assert.Equal(FilterOperator.EqualTo, loaded.Conditions.Single().Operator);
             Assert.Equal(FilterLogic.And, loaded.Logic);
@@ -171,6 +172,51 @@ public class MonitoringTests
         Assert.Equal(0, reports.Calls);
     }
 
+    [Fact]
+    public async Task Reaching_the_row_cap_stops_early_and_continues_after_the_last_seen_row()
+    {
+        var rows = Enumerable.Range(1, MonitorCheckService.PageSize).Select(i => new object?[] { i, "A" }).ToList();
+        var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], rows, true, null));
+        var service = new MonitorCheckService(metadata, new FakeWatermark("999999"), new FakeReports());
+
+        var result = await service.CheckAsync(Settings, Monitor("0", DateTime.UtcNow.AddHours(-1)), CancellationToken.None);
+
+        Assert.True(result.Truncated);
+        Assert.Equal(MonitorCheckService.MaxRows / MonitorCheckService.PageSize, metadata.PageCalls);
+        Assert.Equal(MonitorCheckService.PageSize.ToString(), result.NewWatermark); // Id of the last row we saw
+    }
+
+    [Fact]
+    public async Task Table_that_was_empty_at_the_first_check_counts_everything_later_as_new()
+    {
+        var rows = new List<object?[]> { new object?[] { 1, "A" } };
+        var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], rows, false, null));
+        var service = new MonitorCheckService(metadata, new FakeWatermark("5"), new FakeReports());
+
+        // LastWatermark is null but a check already succeeded (LastCheckedUtc set): the table was empty back then.
+        var result = await service.CheckAsync(Settings, Monitor(null, DateTime.UtcNow.AddHours(-1)), CancellationToken.None);
+
+        Assert.False(result.IsBaseline);
+        Assert.Single(result.Rows);
+        var required = metadata.LastRequest!.RequiredFilters!;
+        Assert.Single(required);
+        Assert.Equal(FilterOperator.LessOrEqual, required[0].Operator);
+    }
+
+    [Fact]
+    public void Settle_holds_back_the_newest_seconds_of_a_date_column_but_never_a_number_column()
+    {
+        var now = new DateTime(2026, 10, 5, 12, 0, 0);
+        var atNow = new WatermarkReading(WatermarkTypes.Format(now), now);
+        var older = new WatermarkReading(WatermarkTypes.Format(now.AddMinutes(-5)), now);
+
+        Assert.Equal(WatermarkTypes.Format(now.AddSeconds(-30)), MonitorCheckService.SettleUpper(atNow, "datetime2", 30));
+        Assert.Equal(older.Max, MonitorCheckService.SettleUpper(older, "datetime2", 30)); // already older than the settle time
+        Assert.Equal(atNow.Max, MonitorCheckService.SettleUpper(atNow, "datetime2", 0)); // settle disabled
+        Assert.Equal("100", MonitorCheckService.SettleUpper(new WatermarkReading("100", now), "int", 30));
+        Assert.Null(MonitorCheckService.SettleUpper(new WatermarkReading(null, now), "datetime2", 30));
+    }
+
     private sealed class FakeMetadata(IReadOnlyList<ColumnInfo> columns, PageResult page) : IDatabaseMetadataService
     {
         public int PageCalls { get; private set; }
@@ -191,10 +237,10 @@ public class MonitoringTests
         }
     }
 
-    private sealed class FakeWatermark(string? max) : IWatermarkReader
+    private sealed class FakeWatermark(string? max, DateTime? serverNow = null) : IWatermarkReader
     {
-        public Task<string?> GetMaxAsync(ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct) =>
-            Task.FromResult(max);
+        public Task<WatermarkReading> ReadAsync(ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct) =>
+            Task.FromResult(new WatermarkReading(max, serverNow));
     }
 
     private sealed class FakeReports : IReportWriter

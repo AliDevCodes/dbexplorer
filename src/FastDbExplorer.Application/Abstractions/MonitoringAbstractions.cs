@@ -9,10 +9,10 @@ public interface IMonitorStore
     Task SaveAsync(IReadOnlyList<MonitorDefinition> monitors, CancellationToken ct = default);
 }
 
-/// <summary>Reads the current maximum of a watermark column (one cheap, read-only query).</summary>
+/// <summary>Reads MAX(watermark column) and the server clock (one cheap, read-only query).</summary>
 public interface IWatermarkReader
 {
-    Task<string?> GetMaxAsync(ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct);
+    Task<WatermarkReading> ReadAsync(ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct);
 }
 
 /// <summary>Writes the matching records to a report file and returns its full path.</summary>

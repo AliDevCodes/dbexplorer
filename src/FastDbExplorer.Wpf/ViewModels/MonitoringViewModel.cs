@@ -21,6 +21,7 @@ public sealed record AlertItem(string MonitorName, string TimeText, string Summa
 public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 {
     private const int MaxAlerts = 100;
+    private const int RepeatFailureAlertEvery = 10;
 
     private readonly IDatabaseMetadataService _metadata;
     private readonly IMonitorStore _store;
@@ -148,8 +149,19 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     private void OnEditorSaved(MonitorDefinition definition)
     {
         var item = Monitors.FirstOrDefault(m => m.Definition.Id == definition.Id);
-        if (item is null) Monitors.Add(new MonitorItemViewModel(definition));
-        else item.Definition = definition;
+        if (item is null)
+        {
+            Monitors.Add(new MonitorItemViewModel(definition));
+        }
+        else
+        {
+            // A check may have finished while the editor was open: keep the newest check state, take only the user's edits.
+            item.Definition = definition with
+            {
+                LastWatermark = item.Definition.LastWatermark,
+                LastCheckedUtc = item.Definition.LastCheckedUtc
+            };
+        }
 
         RefreshSnapshot();
         CloseEditor();
@@ -173,11 +185,11 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         if (outcome.Error is not null)
         {
-            item.HasProblem = true;
-            item.StatusText = MonitoringStrings.CheckFailed(Describe(outcome.Error));
+            OnCheckFailed(item, outcome.Error);
             return;
         }
 
+        item.ConsecutiveFailures = 0;
         var result = outcome.Result!;
         // Copy only the check state: the user may have edited the monitor while the check was running.
         item.Definition = item.Definition with
@@ -199,12 +211,35 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         {
             item.StatusText = MonitoringStrings.Matched(result.Rows.Count);
             var summary = MonitoringStrings.AlertSummary(result.Rows.Count, result.Truncated);
-            Alerts.Insert(0, new AlertItem(item.Name, MonitoringStrings.TimeText(result.CheckedAtUtc), summary, result.ReportPath));
-            while (Alerts.Count > MaxAlerts) Alerts.RemoveAt(Alerts.Count - 1);
+            AddAlert(new AlertItem(item.Name, MonitoringStrings.TimeText(result.CheckedAtUtc), summary, result.ReportPath));
             _notifier.Notify(MonitoringStrings.ToastTitle(item.Name), summary, result.ReportPath, item.Definition.PlaySound);
         }
 
         _ = SaveAsync();
+    }
+
+    /// <summary>
+    /// A monitor that silently stops working is worse than none: tell the user on the first failure of a streak
+    /// (server down, column dropped, folder not writable ...) and again every 10th failure, not on every interval.
+    /// </summary>
+    private void OnCheckFailed(MonitorItemViewModel item, Exception error)
+    {
+        item.HasProblem = true;
+        item.ConsecutiveFailures++;
+        var message = MonitoringStrings.CheckFailed(Describe(error));
+        item.StatusText = message;
+
+        if (item.ConsecutiveFailures == 1 || item.ConsecutiveFailures % RepeatFailureAlertEvery == 0)
+        {
+            AddAlert(new AlertItem(MonitoringStrings.ErrorPrefix + item.Name, MonitoringStrings.TimeText(DateTime.UtcNow), message, null));
+            _notifier.Notify(MonitoringStrings.ToastErrorTitle(item.Name), message, null, item.Definition.PlaySound);
+        }
+    }
+
+    private void AddAlert(AlertItem alert)
+    {
+        Alerts.Insert(0, alert);
+        while (Alerts.Count > MaxAlerts) Alerts.RemoveAt(Alerts.Count - 1);
     }
 
     private void RefreshSnapshot() => _snapshot = Monitors.Select(m => m.Definition).ToList();
