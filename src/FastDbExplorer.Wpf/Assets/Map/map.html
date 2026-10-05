@@ -12,6 +12,7 @@
 <body>
 <div id="map"></div>
 <script src="maplibre-gl.js"></script>
+<script src="coordinate-layers.js"></script>
 <script>
 // Talks to the WPF host through window.chrome.webview. Tiles come from https://tiles.local/{z}/{x}/{y}
 // (intercepted by the host and served from the opened map file, so no server and no internet are needed).
@@ -122,6 +123,8 @@ function load(i, dark) {
   });
   map.on('zoom', () => post({ type: 'zoom', zoom: map.getZoom() }));
   map.on('load', () => { if (i.bounds && !i.center) fit(false); post({ type: 'zoom', zoom: map.getZoom() }); });
+  // Excel coordinate layers (coordinate-layers.js) are redrawn on every new map.
+  if (typeof coordAttach === 'function') coordAttach(map, dark);
 }
 
 function setLayerVisible(name, visible) {
@@ -146,6 +149,7 @@ if (typeof maplibregl === 'undefined') {
     if (m.type === 'load') load(m.info, m.dark);
     else if (m.type === 'layer') setLayerVisible(m.name, m.visible);
     else if (m.type === 'fit') fit(true);
+    else if (typeof m.type === 'string' && m.type.startsWith('coord') && typeof coordHandle === 'function') coordHandle(m);
   });
   post({ type: 'ready' });
 }

@@ -18,11 +18,14 @@ _Last updated: 2026-10-05. Status: ✅ done & owner-verified · 🟡 delivered, 
 ## Excel coordinate layers
 | Feature | Status | Notes |
 |---|---|---|
-| Import `.xlsx` / `.xls` with columns Name, Latitude, Longitude (WGS84 decimal degrees) | 🧱 Phase 1 | `ExcelCoordinateImportService`; invalid rows skipped and reported with codes |
-| Models `MapPoint`, `MapLayer` (Visibility, RadiusMeters in metres) | 🧱 Phase 1 | validated in the constructor |
-| Layers survive restart (JSON per layer in `%AppData%\FastDbExplorer\coordinate-layers`) | 🧱 Phase 1 | store exists; nothing loads it at startup yet |
-| Import UI (file picker, report, layer list, visibility, radius, delete) | ⏳ Phase 2 | |
-| Render points + radius circles on the map | ⏳ Phase 2/3 | |
-| Column detection / mapping | ⏳ later | |
-| DDM / DMS conversion | ⏳ later | |
-| Database spatial queries against layers | ⏳ later | |
+| Import `.xlsx` / `.xls` with columns Name, Latitude, Longitude (WGS84 decimal degrees) | 🟡 Phase 2 | button "وارد کردن Excel" on the map toolbar; invalid rows skipped, summary in Persian |
+| Models `MapPoint`, `MapLayer` (Visibility, RadiusMeters in metres) | 🟡 Phase 1 | validated in the constructor |
+| Layers survive restart (JSON per layer in `%AppData%\FastDbExplorer\coordinate-layers`) | 🟡 Phase 2 | loaded when the map page opens |
+| Each point drawn as marker (dot + name label) | 🟡 Phase 2 | on top of the opened map file |
+| Radius circle per point, radius typed in metres, metre-accurate on the map | 🟡 Phase 2 | geodesic polygon, not a pixel circle; 0 = no circle |
+| Show/hide, refresh (reload from store), zoom to extent, remove | 🟡 Phase 2 | per-layer panel beside the map |
+| Works without an opened map file | ⏳ later | needs a blank-basemap mode |
+| Rename layer, multiple worksheets, `.xlsm` | ⏳ later | |
+| Clustering, large-layer performance | ⏳ later | explicitly out of Phase 2 |
+| Column detection / mapping, DDM / DMS conversion | ⏳ later | |
+| Database spatial queries against layers | ⏳ later | explicitly out of Phase 2 |

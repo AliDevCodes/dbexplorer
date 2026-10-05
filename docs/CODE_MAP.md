@@ -3,7 +3,7 @@
 **Tables flow:** pick database in `ExplorerView.xaml` -> `ExplorerViewModel.LoadTablesAsync` -> `GetTablesAsync` (reads `sys.tables`/`sys.partitions`, no table scan).
 **Read-only safety:** every query passes `ReadOnlySqlGuard.EnsureReadOnly`; connection string uses `ApplicationIntent=ReadOnly`.
 **Theme:** `ThemeService` swaps `Themes/Light.xaml` <-> `Dark.xaml` (colours); `Themes/Styles.xaml` holds all control styles.
-**Texts:** all in `Localization/Strings.cs`. **Saved connections:** `%AppData%\FastDbExplorer\connections.json` (no passwords).
+**Texts:** all in `Localization/Strings.cs` (coordinate-layer texts: `Localization/CoordinateStrings.cs`). **Saved connections:** `%AppData%\FastDbExplorer\connections.json` (no passwords).
 **Errors:** `SqlException` -> `DatabaseAccessException(kind)` in Infrastructure -> Persian message via `Strings.Describe`.
 
 ## MVP-02 (query engine)
@@ -15,7 +15,9 @@
 ## Map module
 `MapView.xaml(.cs)` (WebView2 host, tile interception) · `MapViewModel` · `MapSourceFactory` → `MbTilesMapSource` / `MvtLayerReader` · `Assets/Map/map.html` (MapLibre page + generic style) · `FileDialogService`. Details: PROJECT_MASTER_CONTEXT §5 and §9.
 
-## Excel coordinate layers (Phase 1, headless)
-**Import:** `IExcelImportService` -> `ExcelCoordinateImportService.Import` (ExcelDataReader, first sheet, header Name/Latitude/Longitude) -> `CoordinateImportResult` (`MapLayer` or `ImportIssue` codes).
-**Persistence:** `ICoordinateLayerStore` -> `JsonCoordinateLayerStore` -> `%AppData%\FastDbExplorer\coordinate-layers\{id}.json`.
-**Models/rules:** `Domain/CoordinateLayers.cs` (`MapPoint`, `MapLayer`, `CoordinateRules`). **Tests:** `CoordinateLayerTests.cs`. Status and limits: `CURRENT_STATE.md`.
+## Excel coordinate layers (Phase 1 foundation + Phase 2 map connection)
+**Import:** `MapViewModel.ImportExcelCommand` -> `IFileDialogService.PickExcelFile` -> `IExcelImportService` -> `ExcelCoordinateImportService.Import` (ExcelDataReader, first sheet, header Name/Latitude/Longitude) -> `CoordinateImportResult` (`MapLayer` or `ImportIssue` codes -> Persian via `CoordinateStrings.Describe`).
+**Persistence:** `ICoordinateLayerStore` -> `JsonCoordinateLayerStore` -> `%AppData%\FastDbExplorer\coordinate-layers\{id}.json`. Loaded once by `MapViewModel.EnsureCoordinateLayersLoadedAsync` (called from `MapView.Loaded`).
+**Models/rules:** `Domain/CoordinateLayers.cs` (`MapPoint`, `MapLayer`, `CoordinateRules`). **Geometry:** `Domain/GeoMath.cs` (`CircleRing`, `LayerBounds`, `RadiusInput`).
+**Render flow:** `CoordinateLayerItem` (panel row, commands) -> `MapViewModel` events (`CoordinateLayerChanged/VisibilityChanged/Removed/ZoomRequested`) -> `MapView` `coord*` messages (data from `CoordinateLayerGeoJson`) -> `Assets/Map/coordinate-layers.js` (cache + MapLibre layers `coord|<id>|fill/line/dot/label`).
+**Tests:** `CoordinateLayerTests.cs` (Phase 1), `CoordinateRenderingTests.cs` (Phase 2). Status and limits: `CURRENT_STATE.md`; design: `ARCHITECTURE.md`; graph: `ai/PROJECT_GRAPH.md`.

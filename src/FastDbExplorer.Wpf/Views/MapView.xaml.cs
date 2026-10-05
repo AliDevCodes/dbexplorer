@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using FastDbExplorer.Application.CoordinateLayers;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Services;
 using FastDbExplorer.Wpf.ViewModels;
@@ -13,6 +14,7 @@ namespace FastDbExplorer.Wpf.Views;
 /// <summary>
 /// Hosts the MapLibre page in WebView2. Tiles are never fetched from the network: requests to
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
+/// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit").
 /// </summary>
 public partial class MapView : UserControl
 {
@@ -24,7 +26,12 @@ public partial class MapView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, e) => { Detach(); _viewModel = e.NewValue as MapViewModel; Attach(); };
-        Loaded += async (_, _) => { Attach(); await InitializeWebAsync(); };
+        Loaded += async (_, _) =>
+        {
+            Attach();
+            if (_viewModel is not null) _ = _viewModel.EnsureCoordinateLayersLoadedAsync();
+            await InitializeWebAsync();
+        };
         Unloaded += (_, _) => { Detach(); Web.Dispose(); };
     }
 
@@ -35,6 +42,10 @@ public partial class MapView : UserControl
         _viewModel.SourceChanged += PushSource;
         _viewModel.LayerToggled += PostLayer;
         _viewModel.FitRequested += PostFit;
+        _viewModel.CoordinateLayerChanged += PostCoordinateLayer;
+        _viewModel.CoordinateLayerVisibilityChanged += PostCoordinateVisibility;
+        _viewModel.CoordinateLayerRemoved += PostCoordinateRemove;
+        _viewModel.CoordinateLayerZoomRequested += PostCoordinateZoom;
     }
 
     private void Detach()
@@ -43,6 +54,10 @@ public partial class MapView : UserControl
         _viewModel.SourceChanged -= PushSource;
         _viewModel.LayerToggled -= PostLayer;
         _viewModel.FitRequested -= PostFit;
+        _viewModel.CoordinateLayerChanged -= PostCoordinateLayer;
+        _viewModel.CoordinateLayerVisibilityChanged -= PostCoordinateVisibility;
+        _viewModel.CoordinateLayerRemoved -= PostCoordinateRemove;
+        _viewModel.CoordinateLayerZoomRequested -= PostCoordinateZoom;
     }
 
     private async Task InitializeWebAsync()
@@ -153,6 +168,7 @@ public partial class MapView : UserControl
             case "ready":
                 _pageReady = true;
                 PushSource();
+                PushCoordinateLayers();
                 break;
             case "cursor":
                 _viewModel.SetCursor(root.GetProperty("lng").GetDouble(), root.GetProperty("lat").GetDouble());
@@ -189,6 +205,33 @@ public partial class MapView : UserControl
     private void PostLayer(string name, bool visible) => Post(new { type = "layer", name, visible });
 
     private void PostFit() => Post(new { type = "fit" });
+
+    // ---- Excel coordinate layers -------------------------------------------------------------------------------
+
+    /// <summary>Sends every known coordinate layer; the page caches them and redraws after each map (re)load.</summary>
+    private void PushCoordinateLayers()
+    {
+        if (_viewModel is null) return;
+        foreach (var item in _viewModel.CoordinateLayers) PostCoordinateLayer(item.Layer);
+    }
+
+    private void PostCoordinateLayer(MapLayer layer) => Post(new
+    {
+        type = "coordUpsert",
+        id = layer.Id,
+        name = layer.Name,
+        visible = layer.Visibility,
+        radiusMeters = layer.RadiusMeters,
+        points = CoordinateLayerGeoJson.Points(layer),
+        circles = CoordinateLayerGeoJson.Circles(layer),
+        bounds = CoordinateLayerGeoJson.Bounds(layer)
+    });
+
+    private void PostCoordinateVisibility(Guid id, bool visible) => Post(new { type = "coordVisible", id, visible });
+
+    private void PostCoordinateRemove(Guid id) => Post(new { type = "coordRemove", id });
+
+    private void PostCoordinateZoom(Guid id) => Post(new { type = "coordFit", id });
 
     private void Post(object message)
     {

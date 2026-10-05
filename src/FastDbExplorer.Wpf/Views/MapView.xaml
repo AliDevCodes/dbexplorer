@@ -22,15 +22,16 @@
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Style="{StaticResource IconButton}" Content="&#xE81E;" ToolTip="{x:Static l:Strings.ToggleLayers}" Command="{Binding ToggleLayersCommand}"
                   Visibility="{Binding HasLayers, Converter={StaticResource BoolToVis}}" />
+          <Button Content="{x:Static l:CoordinateStrings.ImportExcel}" Command="{Binding ImportExcelCommand}" Margin="8,0,0,0" Visibility="{Binding HasMap, Converter={StaticResource BoolToVis}}" />
           <Button Content="{x:Static l:Strings.FitToMap}" Command="{Binding FitCommand}" Margin="8,0,0,0" Visibility="{Binding HasMap, Converter={StaticResource BoolToVis}}" />
           <Button Style="{StaticResource PrimaryButton}" Content="{x:Static l:Strings.OpenMapFile}" Command="{Binding OpenFileCommand}" Margin="8,0,0,0" />
         </StackPanel>
       </Grid>
     </Border>
 
-    <!-- Map | layers -->
+    <!-- Map | layers | coordinate layers -->
     <Grid Grid.Row="1">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
 
       <Grid Grid.Column="0">
         <wv2:WebView2 x:Name="Web" Visibility="{Binding HasMap, Converter={StaticResource BoolToVis}}" />
@@ -68,6 +69,52 @@
             <ItemsControl ItemsSource="{Binding Layers}" IsTabStop="False">
               <ItemsControl.ItemTemplate>
                 <DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" Margin="0,4" /></DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <!-- Excel coordinate layers: beside the map, never over it (WebView2 airspace) -->
+      <Border Grid.Column="2" Width="300" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="14"
+              Visibility="{Binding ShowCoordinatePanel, Converter={StaticResource BoolToVis}}">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <TextBlock Text="{x:Static l:CoordinateStrings.PanelTitle}" Style="{StaticResource FieldLabel}" Margin="0,0,0,8" />
+          <TextBlock Grid.Row="1" Text="{Binding CoordinateStatus}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"
+                     Visibility="{Binding HasCoordinateStatus, Converter={StaticResource BoolToVis}}">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                <Style.Triggers><DataTrigger Binding="{Binding CoordinateStatusIsProblem}" Value="True"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}" /></DataTrigger></Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding CoordinateLayers}" IsTabStop="False">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                      <CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" FlowDirection="LeftToRight" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Summary}" Style="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,8" />
+                      <TextBlock Text="{x:Static l:CoordinateStrings.RadiusLabel}" Style="{StaticResource FieldLabel}" Margin="0,0,0,4" />
+                      <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding RadiusText, UpdateSourceTrigger=PropertyChanged}" FlowDirection="LeftToRight" ToolTip="{x:Static l:CoordinateStrings.RadiusTip}">
+                          <TextBox.InputBindings><KeyBinding Key="Enter" Command="{Binding ApplyRadiusCommand}" /></TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Content="{x:Static l:CoordinateStrings.Apply}" Command="{Binding ApplyRadiusCommand}" Margin="6,0,0,0" />
+                      </Grid>
+                      <TextBlock Text="{Binding RadiusError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                                 Visibility="{Binding HasRadiusError, Converter={StaticResource BoolToVis}}" />
+                      <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Style="{StaticResource IconButton}" Content="&#xE8A3;" ToolTip="{x:Static l:CoordinateStrings.ZoomToLayer}" Command="{Binding ZoomCommand}" />
+                        <Button Style="{StaticResource IconButton}" Content="&#xE72C;" ToolTip="{x:Static l:CoordinateStrings.RefreshLayer}" Command="{Binding RefreshCommand}" Margin="4,0,0,0" />
+                        <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="{x:Static l:CoordinateStrings.RemoveLayer}" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
