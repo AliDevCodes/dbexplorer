@@ -22,7 +22,8 @@ public sealed partial class MapLayerItem(string name, Action<string, bool> onCha
 /// <summary>
 /// Map workspace: opens a map file, owns the opened source, and relays commands to the page through events
 /// (the view talks to the WebView2/MapLibre page; this class never touches UI controls).
-/// Phase 2 adds the Excel coordinate layers: import, list, visibility, radius (metres), refresh, zoom, remove.
+/// Phase 2 adds the Excel coordinate layers: import, list, visibility, radius (metres), rename, delete, refresh, zoom.
+/// It also remembers the last opened map (reopened at start-up) and shows the point the mouse is over / the selected one.
 /// </summary>
 public sealed partial class MapViewModel : ObservableObject
 {
@@ -30,15 +31,22 @@ public sealed partial class MapViewModel : ObservableObject
     private readonly IFileDialogService _dialogs;
     private readonly IExcelImportService _excel;
     private readonly ICoordinateLayerStore _store;
+    private readonly IMapSettingsStore _settings;
     private readonly SemaphoreSlim _storeGate = new(1, 1); // one store operation at a time (the store writes whole files)
     private bool _coordinateLayersLoaded;
 
-    public MapViewModel(IMapSourceFactory factory, IFileDialogService dialogs, IExcelImportService excel, ICoordinateLayerStore store)
+    public MapViewModel(
+        IMapSourceFactory factory,
+        IFileDialogService dialogs,
+        IExcelImportService excel,
+        ICoordinateLayerStore store,
+        IMapSettingsStore settings)
     {
         _factory = factory;
         _dialogs = dialogs;
         _excel = excel;
         _store = store;
+        _settings = settings;
         CoordinateLayers.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasCoordinateLayers));
@@ -57,6 +65,10 @@ public sealed partial class MapViewModel : ObservableObject
     public event Action<Guid, bool>? CoordinateLayerVisibilityChanged;
     public event Action<Guid>? CoordinateLayerRemoved;
     public event Action<Guid>? CoordinateLayerZoomRequested;
+    public event Action<Guid, string>? CoordinateLayerRenamed;
+
+    /// <summary>The user asked to drop the highlighted point; the view tells the page.</summary>
+    public event Action? SelectionClearRequested;
 
     /// <summary>The opened map file. The view reads tiles from it.</summary>
     public IMapSource? Source { get; private set; }
@@ -79,6 +91,13 @@ public sealed partial class MapViewModel : ObservableObject
     [ObservableProperty] private string _coordinateStatus = "";
     [ObservableProperty] private bool _coordinateStatusIsProblem;
 
+    // Point under the mouse (status bar) and the clicked point (info card in the coordinate panel).
+    [ObservableProperty] private string _hoverText = "";
+    [ObservableProperty] private bool _hasSelectedPoint;
+    [ObservableProperty] private string _selectedPointName = "";
+    [ObservableProperty] private string _selectedPointLayer = "";
+    [ObservableProperty] private string _selectedPointCoords = "";
+
     public bool ShowLayersPanel => HasMap && IsLayersOpen && HasLayers;
 
     public bool HasCoordinateLayers => CoordinateLayers.Count > 0;
@@ -92,6 +111,11 @@ public sealed partial class MapViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ShowLayersPanel));
         OnPropertyChanged(nameof(ShowCoordinatePanel));
+        if (!value)
+        {
+            HoverText = "";
+            ClearSelectedPoint();
+        }
     }
 
     partial void OnIsLayersOpenChanged(bool value) => OnPropertyChanged(nameof(ShowLayersPanel));
@@ -119,6 +143,31 @@ public sealed partial class MapViewModel : ObservableObject
         if (path is not null) await OpenPathAsync(path);
     }
 
+    /// <summary>
+    /// Start-up: reopens the map that was open last time. Nothing saved = nothing happens (empty state);
+    /// a saved file that no longer exists = a clear error card instead of a silent empty map.
+    /// </summary>
+    public async Task LoadLastMapAsync()
+    {
+        try
+        {
+            var path = await _settings.LoadLastMapPathAsync();
+            if (string.IsNullOrWhiteSpace(path) || HasMap) return; // nothing saved, or the user was faster
+
+            if (!File.Exists(path))
+            {
+                ShowProblem((CoordinateStrings.LastMapMissingTitle, CoordinateStrings.LastMapMissingBody(path)));
+                return;
+            }
+
+            await OpenPathAsync(path);
+        }
+        catch (Exception ex) // start-up boundary: a bad settings file or map must never stop the application
+        {
+            ShowProblem((Strings.CorruptTitle, ex.Message));
+        }
+    }
+
     public async Task OpenPathAsync(string path)
     {
         IsLoading = true;
@@ -137,8 +186,10 @@ public sealed partial class MapViewModel : ObservableObject
             FormatText = $"{source.Info.FormatLabel} · {(source.Info.Kind == MapTileKind.Vector ? "Vector" : "Raster")}";
             CursorText = "";
             ZoomText = "";
+            InfoIsProblem = false;
             HasMap = true;
             SourceChanged?.Invoke();
+            await RememberMapAsync(path);
         }
         catch (UnsupportedMapFormatException ex)
         {
@@ -159,6 +210,13 @@ public sealed partial class MapViewModel : ObservableObject
         }
     }
 
+    /// <summary>Saves the path of a map that opened. Failing to save is not worth bothering the user.</summary>
+    private async Task RememberMapAsync(string path)
+    {
+        try { await _settings.SaveLastMapPathAsync(Path.GetFullPath(path)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+    }
+
     public void ReportAssetsMissing() => ShowProblem((Strings.AssetsMissingTitle, Strings.AssetsMissingBody));
 
     public void ReportWebViewProblem(string details) =>
@@ -169,6 +227,35 @@ public sealed partial class MapViewModel : ObservableObject
 
     public void SetZoom(double zoom) =>
         ZoomText = string.Create(CultureInfo.InvariantCulture, $"{Strings.Zoom} {zoom:F1}");
+
+    // ---- Point hover / selection (messages from the page) -----------------------------------------------------
+
+    /// <summary>The mouse is over a coordinate point (name set) or left it (name null).</summary>
+    public void SetHoverPoint(string? name, string? layerName) =>
+        HoverText = string.IsNullOrEmpty(name) ? "" : CoordinateStrings.HoverPoint(name, layerName);
+
+    public void SetSelectedPoint(string name, string? layerName, double latitude, double longitude)
+    {
+        SelectedPointName = name;
+        SelectedPointLayer = layerName ?? "";
+        SelectedPointCoords = CoordinateStrings.Coordinates(latitude, longitude);
+        HasSelectedPoint = true;
+    }
+
+    public void ClearSelectedPoint()
+    {
+        HasSelectedPoint = false;
+        SelectedPointName = "";
+        SelectedPointLayer = "";
+        SelectedPointCoords = "";
+    }
+
+    [RelayCommand]
+    private void ClearSelection()
+    {
+        ClearSelectedPoint();
+        SelectionClearRequested?.Invoke();
+    }
 
     private void ShowProblem((string Title, string Body) problem)
     {
@@ -253,8 +340,35 @@ public sealed partial class MapViewModel : ObservableObject
         item.RadiusError = "";
         item.Layer.RadiusMeters = meters;
         item.RadiusText = CoordinateLayerItem.FormatRadius(meters);
+        item.NotifyLayerDataChanged();
         CoordinateLayerChanged?.Invoke(item.Layer);
         await SaveLayerAsync(item.Layer);
+    }
+
+    /// <summary>Validates and applies the typed name; the layer keeps its old name until the new one is valid.</summary>
+    internal async Task RenameCoordinateLayerAsync(CoordinateLayerItem item)
+    {
+        var name = item.EditName.Trim();
+        if (name.Length == 0)
+        {
+            item.EditError = CoordinateStrings.NameEmpty;
+            return;
+        }
+        if (name.Length > CoordinateStrings.MaxNameLength)
+        {
+            item.EditError = CoordinateStrings.NameTooLong();
+            return;
+        }
+
+        item.EditError = "";
+        item.IsRenaming = false;
+        if (name == item.Layer.Name) return;
+
+        item.Layer.Name = name;
+        item.NotifyLayerDataChanged();
+        CoordinateLayerRenamed?.Invoke(item.Id, name);
+        SetCoordinateStatus(CoordinateStrings.Renamed(name), false);
+        await SaveLayerAsync(item.Layer); // a save problem replaces the success text
     }
 
     internal void ZoomToCoordinateLayer(CoordinateLayerItem item) => CoordinateLayerZoomRequested?.Invoke(item.Id);

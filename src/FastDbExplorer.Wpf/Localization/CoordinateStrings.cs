@@ -1,13 +1,16 @@
+using System.Globalization;
 using FastDbExplorer.Domain;
 
 namespace FastDbExplorer.Wpf.Localization;
 
 /// <summary>
-/// User-facing text of the Excel coordinate layers. Kept in its own file so Strings.cs stays untouched;
+/// User-facing text of the Excel coordinate layers and the map interactions. Kept in its own file so Strings.cs stays untouched;
 /// it can be merged into Strings.cs later (same pattern, same rules).
 /// </summary>
 public static class CoordinateStrings
 {
+    public const int MaxNameLength = 100;
+
     public const string PanelTitle = "لایه‌های مختصات (Excel)";
     public const string ImportExcel = "وارد کردن Excel";
     public const string RadiusLabel = "شعاع اطراف هر نقطه (متر)";
@@ -22,7 +25,42 @@ public static class CoordinateStrings
     public const string RemoveFailed = "حذف لایه ممکن نشد: ";
     public const string ImportFailedPrefix = "وارد کردن انجام نشد. ";
 
+    // Layer management (rename / delete)
+    public const string RenameLayer = "تغییر نام لایه";
+    public const string SaveName = "ذخیره‌ی نام";
+    public const string CancelEdit = "انصراف";
+    public const string NameEmpty = "نام لایه نباید خالی باشد.";
+    public const string ConfirmRemoveQuestion = "این لایه حذف شود؟";
+    public const string ConfirmRemoveYes = "حذف";
+    public const string ConfirmRemoveNo = "انصراف";
+
+    // Point selection / hover
+    public const string SelectedPointTitle = "نقطه‌ی انتخاب‌شده";
+    public const string ClearSelection = "برداشتن انتخاب";
+
+    // Last used map
+    public const string LastMapMissingTitle = "فایل آخرین نقشه پیدا نشد";
+
+    public static string NameTooLong() => $"نام لایه نباید بیش از {MaxNameLength} نویسه باشد.";
+
     public static string Summary(int points, string fileName) => $"{points:N0} نقطه · {fileName}";
+
+    public static string PointsChip(int points) => $"{points:N0} نقطه";
+
+    public static string RadiusChip(double meters) =>
+        meters > 0 ? $"شعاع {meters.ToString("#,0.###", CultureInfo.InvariantCulture)} متر" : "بدون شعاع";
+
+    public static string Renamed(string name) => $"نام لایه به «{name}» تغییر کرد.";
+
+    public static string HoverPoint(string name, string? layer) =>
+        string.IsNullOrEmpty(layer) ? $"نقطه: {name}" : $"نقطه: {name} · {layer}";
+
+    public static string Coordinates(double latitude, double longitude) =>
+        string.Create(CultureInfo.InvariantCulture, $"{latitude:F5}, {longitude:F5}");
+
+    public static string LastMapMissingBody(string path) =>
+        "آخرین نقشه‌ای که استفاده کرده بودید دیگر در این مسیر نیست (حذف، جابه‌جا یا قطع‌شدن درایو). "
+        + "مسیر ذخیره‌شده: " + path + " — یک فایل نقشه‌ی دیگر انتخاب کنید یا فایل را به مسیر قبلی برگردانید.";
 
     public static string Refreshed(string name) => $"لایه‌ی «{name}» دوباره خوانده و رسم شد.";
 

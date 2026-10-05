@@ -26,7 +26,13 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentView = connection;
     }
 
-    public Task InitializeAsync() => _connection.InitializeAsync();
+    public async Task InitializeAsync()
+    {
+        // The last used map opens in the background at start-up, so it is ready when the user opens the map screen.
+        var lastMap = _map.LoadLastMapAsync();
+        await _connection.InitializeAsync();
+        await lastMap;
+    }
 
     private void OpenMap()
     {

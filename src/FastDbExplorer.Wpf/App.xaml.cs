@@ -30,6 +30,7 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
         builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
         builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
+        builder.Services.AddSingleton<IMapSettingsStore>(_ => new JsonMapSettingsStore());
         builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();
         builder.Services.AddSingleton<ICoordinateLayerStore>(_ => new JsonCoordinateLayerStore());
         builder.Services.AddSingleton<IFileDialogService, FileDialogService>();
