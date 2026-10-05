@@ -2,6 +2,67 @@
              xmlns:l="clr-namespace:FastDbExplorer.Wpf.Localization"
              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
              AllowDrop="True" Drop="OnDrop">
+  <UserControl.Resources>
+    <!-- Map-panel styles. Kept here (not in Styles.xaml) so they can use the app styles as base; all brushes are DynamicResource (light + dark). -->
+
+    <!-- Plain row (vector layer list): transparent, soft background on hover -->
+    <Style x:Key="LayerRow" TargetType="Border">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="Margin" Value="0,1" />
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" /></Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- Coordinate layer card: hairline border, accent border + soft fill on hover -->
+    <Style x:Key="LayerCard" TargetType="Border">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="Margin" Value="0,0,0,10" />
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style x:Key="Chip" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="Margin" Value="0,0,6,6" />
+    </Style>
+    <Style x:Key="ChipText" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+    </Style>
+
+    <Style x:Key="MiniIconButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+      <Setter Property="Padding" Value="7" />
+      <Setter Property="FontSize" Value="13" />
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="DangerMiniIconButton" TargetType="Button" BasedOn="{StaticResource MiniIconButton}">
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}" /></Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+      <Setter Property="Background" Value="{DynamicResource DangerBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+      <Setter Property="Padding" Value="12,6" />
+    </Style>
+  </UserControl.Resources>
+
   <Grid>
     <Grid.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3" /></Storyboard></BeginStoryboard></EventTrigger></Grid.Triggers>
     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
@@ -60,15 +121,25 @@
         </Border>
       </Grid>
 
+      <!-- Vector layers of the opened map -->
       <Border Grid.Column="1" Width="270" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="14"
               Visibility="{Binding ShowLayersPanel, Converter={StaticResource BoolToVis}}">
         <Grid>
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <TextBlock Text="{x:Static l:Strings.Layers}" Style="{StaticResource FieldLabel}" Margin="0,0,0,8" />
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="{x:Static l:Strings.Layers}" Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Center" />
+            <Border Style="{StaticResource Chip}" Margin="8,0,0,0">
+              <TextBlock Text="{Binding Layers.Count}" Style="{StaticResource ChipText}" />
+            </Border>
+          </StackPanel>
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" FlowDirection="LeftToRight">
             <ItemsControl ItemsSource="{Binding Layers}" IsTabStop="False">
               <ItemsControl.ItemTemplate>
-                <DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" Margin="0,4" /></DataTemplate>
+                <DataTemplate>
+                  <Border Style="{StaticResource LayerRow}">
+                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" />
+                  </Border>
+                </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
@@ -76,11 +147,18 @@
       </Border>
 
       <!-- Excel coordinate layers: beside the map, never over it (WebView2 airspace) -->
-      <Border Grid.Column="2" Width="300" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="14"
+      <Border Grid.Column="2" Width="320" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="14"
               Visibility="{Binding ShowCoordinatePanel, Converter={StaticResource BoolToVis}}">
         <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <TextBlock Text="{x:Static l:CoordinateStrings.PanelTitle}" Style="{StaticResource FieldLabel}" Margin="0,0,0,8" />
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="{x:Static l:CoordinateStrings.PanelTitle}" Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Center" />
+            <Border Style="{StaticResource Chip}" Margin="8,0,0,0" Visibility="{Binding HasCoordinateLayers, Converter={StaticResource BoolToVis}}">
+              <TextBlock Text="{Binding CoordinateLayers.Count}" Style="{StaticResource ChipText}" />
+            </Border>
+          </StackPanel>
+
           <TextBlock Grid.Row="1" Text="{Binding CoordinateStatus}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"
                      Visibility="{Binding HasCoordinateStatus, Converter={StaticResource BoolToVis}}">
             <TextBlock.Style>
@@ -89,29 +167,92 @@
               </Style>
             </TextBlock.Style>
           </TextBlock>
-          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+
+          <!-- Point selected by clicking on the map -->
+          <Border Grid.Row="2" Background="{DynamicResource AccentSoftBrush}" CornerRadius="12" Padding="12,10" Margin="0,0,0,10"
+                  Visibility="{Binding HasSelectedPoint, Converter={StaticResource BoolToVis}}">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="{x:Static l:CoordinateStrings.SelectedPointTitle}" Style="{StaticResource FieldLabel}" Margin="0,0,0,2" />
+                <TextBlock Text="{Binding SelectedPointName}" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding SelectedPointLayer}" Style="{StaticResource Muted}" Margin="0,2,0,0" />
+                <TextBlock Text="{Binding SelectedPointCoords}" Style="{StaticResource Muted}" FlowDirection="LeftToRight" HorizontalAlignment="Left" Margin="0,2,0,0" />
+              </StackPanel>
+              <Button Grid.Column="1" Style="{StaticResource MiniIconButton}" Content="&#xE711;" VerticalAlignment="Top"
+                      ToolTip="{x:Static l:CoordinateStrings.ClearSelection}" Command="{Binding ClearSelectionCommand}" />
+            </Grid>
+          </Border>
+
+          <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{Binding CoordinateLayers}" IsTabStop="False">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                  <Border Style="{StaticResource LayerCard}">
                     <StackPanel>
-                      <CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" FlowDirection="LeftToRight" FontWeight="SemiBold" />
-                      <TextBlock Text="{Binding Summary}" Style="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,8" />
+
+                      <!-- Name row: visibility check + rename button, or the inline rename editor -->
+                      <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible}" FlowDirection="LeftToRight" FontWeight="SemiBold" VerticalAlignment="Center"
+                                  Visibility="{Binding IsNotRenaming, Converter={StaticResource BoolToVis}}" />
+                        <Button Grid.Column="1" Style="{StaticResource MiniIconButton}" Content="&#xE70F;" ToolTip="{x:Static l:CoordinateStrings.RenameLayer}"
+                                Command="{Binding BeginRenameCommand}" Visibility="{Binding IsNotRenaming, Converter={StaticResource BoolToVis}}" />
+
+                        <Grid Grid.ColumnSpan="2" Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVis}}">
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                          <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}" Padding="8,6" FlowDirection="LeftToRight"
+                                  MaxLength="100" IsVisibleChanged="OnRenameBoxVisibleChanged">
+                            <TextBox.InputBindings>
+                              <KeyBinding Key="Enter" Command="{Binding CommitRenameCommand}" />
+                              <KeyBinding Key="Escape" Command="{Binding CancelRenameCommand}" />
+                            </TextBox.InputBindings>
+                          </TextBox>
+                          <Button Grid.Column="1" Style="{StaticResource MiniIconButton}" Content="&#xE73E;" Margin="4,0,0,0"
+                                  ToolTip="{x:Static l:CoordinateStrings.SaveName}" Command="{Binding CommitRenameCommand}" />
+                          <Button Grid.Column="2" Style="{StaticResource DangerMiniIconButton}" Content="&#xE711;"
+                                  ToolTip="{x:Static l:CoordinateStrings.CancelEdit}" Command="{Binding CancelRenameCommand}" />
+                        </Grid>
+                      </Grid>
+                      <TextBlock Text="{Binding EditError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                                 Visibility="{Binding HasEditError, Converter={StaticResource BoolToVis}}" />
+
+                      <!-- Point count + radius at a glance, then the source file -->
+                      <WrapPanel Margin="0,8,0,0">
+                        <Border Style="{StaticResource Chip}"><TextBlock Text="{Binding PointsText}" Style="{StaticResource ChipText}" /></Border>
+                        <Border Style="{StaticResource Chip}"><TextBlock Text="{Binding RadiusSummary}" Style="{StaticResource ChipText}" /></Border>
+                      </WrapPanel>
+                      <TextBlock Text="{Binding FileName}" Style="{StaticResource Muted}" FlowDirection="LeftToRight" HorizontalAlignment="Left"
+                                 TextTrimming="CharacterEllipsis" Margin="0,0,0,10" ToolTip="{Binding FileName}" />
+
+                      <!-- Radius -->
                       <TextBlock Text="{x:Static l:CoordinateStrings.RadiusLabel}" Style="{StaticResource FieldLabel}" Margin="0,0,0,4" />
                       <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBox Text="{Binding RadiusText, UpdateSourceTrigger=PropertyChanged}" FlowDirection="LeftToRight" ToolTip="{x:Static l:CoordinateStrings.RadiusTip}">
+                        <TextBox Text="{Binding RadiusText, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" FlowDirection="LeftToRight" ToolTip="{x:Static l:CoordinateStrings.RadiusTip}">
                           <TextBox.InputBindings><KeyBinding Key="Enter" Command="{Binding ApplyRadiusCommand}" /></TextBox.InputBindings>
                         </TextBox>
-                        <Button Grid.Column="1" Content="{x:Static l:CoordinateStrings.Apply}" Command="{Binding ApplyRadiusCommand}" Margin="6,0,0,0" />
+                        <Button Grid.Column="1" Content="{x:Static l:CoordinateStrings.Apply}" Command="{Binding ApplyRadiusCommand}" Padding="14,7" Margin="6,0,0,0" />
                       </Grid>
                       <TextBlock Text="{Binding RadiusError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
                                  Visibility="{Binding HasRadiusError, Converter={StaticResource BoolToVis}}" />
-                      <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Style="{StaticResource IconButton}" Content="&#xE8A3;" ToolTip="{x:Static l:CoordinateStrings.ZoomToLayer}" Command="{Binding ZoomCommand}" />
-                        <Button Style="{StaticResource IconButton}" Content="&#xE72C;" ToolTip="{x:Static l:CoordinateStrings.RefreshLayer}" Command="{Binding RefreshCommand}" Margin="4,0,0,0" />
-                        <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="{x:Static l:CoordinateStrings.RemoveLayer}" Command="{Binding RemoveCommand}" Margin="4,0,0,0" />
-                      </StackPanel>
+
+                      <!-- Actions: zoom / refresh on one side, delete (with inline confirmation) on the other -->
+                      <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                          <Button Style="{StaticResource MiniIconButton}" Content="&#xE8A3;" ToolTip="{x:Static l:CoordinateStrings.ZoomToLayer}" Command="{Binding ZoomCommand}" />
+                          <Button Style="{StaticResource MiniIconButton}" Content="&#xE72C;" ToolTip="{x:Static l:CoordinateStrings.RefreshLayer}" Command="{Binding RefreshCommand}" Margin="4,0,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource DangerMiniIconButton}" Content="&#xE74D;" ToolTip="{x:Static l:CoordinateStrings.RemoveLayer}"
+                                Command="{Binding RequestDeleteCommand}" Visibility="{Binding IsNotConfirmingDelete, Converter={StaticResource BoolToVis}}" />
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                                    Visibility="{Binding IsConfirmingDelete, Converter={StaticResource BoolToVis}}">
+                          <TextBlock Text="{x:Static l:CoordinateStrings.ConfirmRemoveQuestion}" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0" />
+                          <Button Style="{StaticResource DangerButton}" Content="{x:Static l:CoordinateStrings.ConfirmRemoveYes}" Command="{Binding ConfirmDeleteCommand}" />
+                          <Button Content="{x:Static l:CoordinateStrings.ConfirmRemoveNo}" Command="{Binding CancelDeleteCommand}" Padding="12,6" Margin="6,0,0,0" />
+                        </StackPanel>
+                      </Grid>
                     </StackPanel>
                   </Border>
                 </DataTemplate>
@@ -122,11 +263,14 @@
       </Border>
     </Grid>
 
-    <!-- Status bar -->
+    <!-- Status bar: zoom | point under the mouse | cursor position -->
     <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,6">
       <Grid>
-        <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Muted}" HorizontalAlignment="Left" />
-        <TextBlock Text="{Binding CursorText}" Style="{StaticResource Muted}" FlowDirection="LeftToRight" HorizontalAlignment="Right" />
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Muted}" />
+        <TextBlock Grid.Column="1" Text="{Binding HoverText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"
+                   TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="16,0" />
+        <TextBlock Grid.Column="2" Text="{Binding CursorText}" Style="{StaticResource Muted}" FlowDirection="LeftToRight" />
       </Grid>
     </Border>
   </Grid>

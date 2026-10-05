@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using FastDbExplorer.Application.CoordinateLayers;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Services;
@@ -14,7 +15,8 @@ namespace FastDbExplorer.Wpf.Views;
 /// <summary>
 /// Hosts the MapLibre page in WebView2. Tiles are never fetched from the network: requests to
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
-/// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit").
+/// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit" /
+/// "coordRename" / "coordSelectClear"); the page answers with "pointHover" and "pointSelect".
 /// </summary>
 public partial class MapView : UserControl
 {
@@ -46,6 +48,8 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerVisibilityChanged += PostCoordinateVisibility;
         _viewModel.CoordinateLayerRemoved += PostCoordinateRemove;
         _viewModel.CoordinateLayerZoomRequested += PostCoordinateZoom;
+        _viewModel.CoordinateLayerRenamed += PostCoordinateRename;
+        _viewModel.SelectionClearRequested += PostSelectionClear;
     }
 
     private void Detach()
@@ -58,6 +62,8 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerVisibilityChanged -= PostCoordinateVisibility;
         _viewModel.CoordinateLayerRemoved -= PostCoordinateRemove;
         _viewModel.CoordinateLayerZoomRequested -= PostCoordinateZoom;
+        _viewModel.CoordinateLayerRenamed -= PostCoordinateRename;
+        _viewModel.SelectionClearRequested -= PostSelectionClear;
     }
 
     private async Task InitializeWebAsync()
@@ -167,6 +173,8 @@ public partial class MapView : UserControl
         {
             case "ready":
                 _pageReady = true;
+                _viewModel.SetHoverPoint(null, null);
+                _viewModel.ClearSelectedPoint(); // a fresh page has no highlighted point
                 PushSource();
                 PushCoordinateLayers();
                 break;
@@ -176,8 +184,21 @@ public partial class MapView : UserControl
             case "zoom":
                 _viewModel.SetZoom(root.GetProperty("zoom").GetDouble());
                 break;
+            case "pointHover":
+                _viewModel.SetHoverPoint(Text(root, "name"), Text(root, "layer"));
+                break;
+            case "pointSelect":
+                if (root.TryGetProperty("selected", out var selected) && selected.ValueKind == JsonValueKind.True
+                    && Text(root, "name") is { } name)
+                    _viewModel.SetSelectedPoint(name, Text(root, "layer"), root.GetProperty("lat").GetDouble(), root.GetProperty("lng").GetDouble());
+                else
+                    _viewModel.ClearSelectedPoint();
+                break;
         }
     }
+
+    private static string? Text(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private void PushSource()
     {
@@ -233,6 +254,11 @@ public partial class MapView : UserControl
 
     private void PostCoordinateZoom(Guid id) => Post(new { type = "coordFit", id });
 
+    /// <summary>A rename only changes a label, so a tiny message is sent instead of the whole layer.</summary>
+    private void PostCoordinateRename(Guid id, string name) => Post(new { type = "coordRename", id, name });
+
+    private void PostSelectionClear() => Post(new { type = "coordSelectClear" });
+
     private void Post(object message)
     {
         if (_pageReady && Web.CoreWebView2 is not null)
@@ -243,5 +269,12 @@ public partial class MapView : UserControl
     {
         if (_viewModel is not null && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files)
             _ = _viewModel.OpenPathAsync(files[0]);
+    }
+
+    /// <summary>When the inline rename editor appears, put the caret in it with the old name selected.</summary>
+    private void OnRenameBoxVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true && sender is TextBox box)
+            box.Dispatcher.BeginInvoke(() => { box.Focus(); box.SelectAll(); }, DispatcherPriority.Input);
     }
 }
