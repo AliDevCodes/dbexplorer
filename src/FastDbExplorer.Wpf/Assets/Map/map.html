@@ -20,6 +20,9 @@ const host = window.chrome && window.chrome.webview;
 const post = (m) => host && host.postMessage(m);
 let map = null, info = null, pendingMove = false;
 
+// Every map opens on Iran (centre [lng, lat], zoom 4.7), whatever the file covers. "Fit to map" still zooms to the file's bounds.
+const IRAN_VIEW = { center: [53.688, 32.428], zoom: 4.7 };
+
 const hue = (name) => { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
 const colorOf = (name, dark) => `hsl(${hue(name)}, 62%, ${dark ? 62 : 42}%)`;
 
@@ -51,7 +54,7 @@ function buildStyle(i, dark) {
     }
   }
   if (i.kind !== 'raster') addLabels(layers, i.layers, dark);
-  // Fonts are plain files in Assets/Map/fonts/<name>/<range>.pbf (downloaded by setup-map-assets.cmd), no internet at run time.
+  // Fonts are plain files in Assets/Map/fonts/<n>/<range>.pbf (downloaded by setup-map-assets.cmd), no internet at run time.
   return { version: 8, glyphs: 'https://app.local/fonts/{fontstack}/{range}.pbf', sources, layers };
 }
 
@@ -111,9 +114,9 @@ function fit(animate) {
 function load(i, dark) {
   info = i;
   if (map) { map.remove(); map = null; }
-  const center = i.center ? [i.center[0], i.center[1]] : (i.bounds ? [(i.bounds[0] + i.bounds[2]) / 2, (i.bounds[1] + i.bounds[3]) / 2] : [0, 0]);
-  const zoom = i.center && i.center.length > 2 ? i.center[2] : Math.max(i.minZoom, 1);
-  map = new maplibregl.Map({ container: 'map', style: buildStyle(i, dark), center, zoom, attributionControl: false, renderWorldCopies: false, maxZoom: 22 });
+  // Start view is always Iran (see IRAN_VIEW); the file's own centre/bounds are only used by "Fit to map".
+  map = new maplibregl.Map({ container: 'map', style: buildStyle(i, dark), center: IRAN_VIEW.center, zoom: IRAN_VIEW.zoom,
+    attributionControl: false, renderWorldCopies: false, maxZoom: 22 });
   map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-left');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map.on('mousemove', (e) => {
@@ -122,7 +125,7 @@ function load(i, dark) {
     requestAnimationFrame(() => { pendingMove = false; post({ type: 'cursor', lng: e.lngLat.lng, lat: e.lngLat.lat }); });
   });
   map.on('zoom', () => post({ type: 'zoom', zoom: map.getZoom() }));
-  map.on('load', () => { if (i.bounds && !i.center) fit(false); post({ type: 'zoom', zoom: map.getZoom() }); });
+  map.on('load', () => { post({ type: 'zoom', zoom: map.getZoom() }); });
   // Excel coordinate layers (coordinate-layers.js) are redrawn on every new map.
   if (typeof coordAttach === 'function') coordAttach(map, dark);
 }
