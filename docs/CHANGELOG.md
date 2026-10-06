@@ -1,6 +1,17 @@
 # Changelog
 Format: newest first. Dates are ISO. Everything below is unverified by a build until the owner confirms (see `CURRENT_STATE.md`).
 
+## [Unreleased] — 2026-10-06 — Start-up splash screen (branch `feature/monitoring-alerts`)
+### Added
+- `Views/SplashWindow.xaml(.cs)`: borderless, transparent, rounded 760x460 window (fixed dark design): radial glow, faint contour lines, three expanding ripples, database logo with shadow, name + Persian tagline, progress bar with shimmer, status line `text  n / 3`, footer (read-only note + version from the assembly).
+- `Localization/SplashStrings.cs`: tagline, footer and the three step texts.
+
+### Changed
+- `App.xaml.cs`: `OnStartup` shows the splash first and reports the real steps (1 services/DI, 2 host start, 3 theme + main window creation). The main window is shown before the splash closes; the splash stays at least 1.2 s (`MinSplashTime`). A failure during start-up closes the splash, shows the message and shuts the app down (before, the async-void exception left the app half started). DI registrations and their order are unchanged.
+
+### Not included (by design)
+No images/fonts downloaded from the web (the app uses its embedded Vazirmatn); no per-theme variant; the bar steps are start-up stages, not a percentage of real work.
+
 ## [Unreleased] — 2026-10-05 — Excel Coordinate Layer Import, Phase 1 (branch `feature/excel-coordinate-layers-phase1`)
 ### Added
 - `MapPoint`, `MapLayer`, `CoordinateRules`, `ImportIssue` / `ImportIssueCode`, `CoordinateImportResult` (Domain).

@@ -3,8 +3,9 @@
 **Tables flow:** pick database in `ExplorerView.xaml` -> `ExplorerViewModel.LoadTablesAsync` -> `GetTablesAsync` (reads `sys.tables`/`sys.partitions`, no table scan).
 **Read-only safety:** every query passes `ReadOnlySqlGuard.EnsureReadOnly`; connection string uses `ApplicationIntent=ReadOnly`.
 **Theme:** `ThemeService` swaps `Themes/Light.xaml` <-> `Dark.xaml` (colours); `Themes/Styles.xaml` holds all control styles.
-**Texts:** all in `Localization/Strings.cs` (coordinate-layer texts: `Localization/CoordinateStrings.cs`). **Saved connections:** `%AppData%\FastDbExplorer\connections.json` (no passwords).
+**Texts:** all in `Localization/Strings.cs` (coordinate-layer texts: `Localization/CoordinateStrings.cs`; splash: `Localization/SplashStrings.cs`). **Saved connections:** `%AppData%\FastDbExplorer\connections.json` (no passwords).
 **Errors:** `SqlException` -> `DatabaseAccessException(kind)` in Infrastructure -> Persian message via `Strings.Describe`.
+**Start-up:** `App.OnStartup` -> `SplashWindow` (`Report(step, total, text)`) -> build DI host -> `_host.StartAsync` -> `ThemeService.Start` -> create `MainWindow` -> show it -> close splash (min 1.2 s, `MinSplashTime`). Start-up failure: splash closes, message box, `Shutdown(1)`.
 
 ## MVP-02 (query engine)
 **Run flow:** `TableQueryView.xaml` -> `TableQueryViewModel.RunAsync` -> `PageRequest` -> `SqlServerMetadataService.GetPageAsync` -> `GetColumnsAsync` (validates names) -> `SelectQueryBuilder.Build` (SQL + typed parameters) -> `ReadOnlySqlGuard` -> reader (page size + 1 rows).

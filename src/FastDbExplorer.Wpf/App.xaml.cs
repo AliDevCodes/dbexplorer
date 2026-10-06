@@ -1,11 +1,15 @@
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Threading;
 using FastDbExplorer.Application.Abstractions;
 using FastDbExplorer.Infrastructure;
 using FastDbExplorer.Infrastructure.CoordinateLayers;
 using FastDbExplorer.Infrastructure.Maps;
 using FastDbExplorer.Infrastructure.Monitoring;
+using FastDbExplorer.Wpf.Localization;
 using FastDbExplorer.Wpf.Services;
 using FastDbExplorer.Wpf.ViewModels;
+using FastDbExplorer.Wpf.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -14,6 +18,10 @@ namespace FastDbExplorer.Wpf;
 // Note: "Application" would clash with the FastDbExplorer.Application namespace, so the base type is fully qualified.
 public partial class App : System.Windows.Application
 {
+    private const int StartupSteps = 3;
+    // The splash stays at least this long, otherwise it would only flash on a fast machine.
+    private static readonly TimeSpan MinSplashTime = TimeSpan.FromMilliseconds(1200);
+
     private IHost? _host;
     private ThemeService? _theme;
 
@@ -27,32 +35,59 @@ public partial class App : System.Windows.Application
             args.Handled = true;
         };
 
-        var builder = Host.CreateApplicationBuilder();
-        builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
-        builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
-        builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
-        builder.Services.AddSingleton<IMapSettingsStore>(_ => new JsonMapSettingsStore());
-        builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();
-        builder.Services.AddSingleton<ICoordinateLayerStore>(_ => new JsonCoordinateLayerStore());
-        builder.Services.AddSingleton<IFileDialogService, FileDialogService>();
-        builder.Services.AddSingleton<IMonitorStore>(_ => new JsonMonitorStore());
-        builder.Services.AddSingleton<IWatermarkReader, SqlServerWatermarkReader>();
-        builder.Services.AddSingleton<IReportWriter, XlsxReportWriter>();
-        builder.Services.AddSingleton<IMonitorCheckService, MonitorCheckService>();
-        builder.Services.AddSingleton<IFolderPickerService, FolderPickerService>();
-        builder.Services.AddSingleton<IAlertNotifier, AlertNotifier>();
-        builder.Services.AddSingleton<MonitoringViewModelFactory>();
-        builder.Services.AddSingleton<ConnectionViewModel>();
-        builder.Services.AddSingleton<MapViewModel>();
-        builder.Services.AddSingleton<MainViewModel>();
-        builder.Services.AddSingleton<MainWindow>();
-        _host = builder.Build();
-        await _host.StartAsync();
+        var splash = new SplashWindow();
+        splash.Show();
+        var shownFor = Stopwatch.StartNew();
 
-        _theme = new ThemeService();
-        _theme.Start();
+        try
+        {
+            splash.Report(1, StartupSteps, SplashStrings.StepServices);
+            // Let the splash paint before the (synchronous) service setup starts.
+            await Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Background);
 
-        _host.Services.GetRequiredService<MainWindow>().Show();
+            var builder = Host.CreateApplicationBuilder();
+            builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
+            builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
+            builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
+            builder.Services.AddSingleton<IMapSettingsStore>(_ => new JsonMapSettingsStore());
+            builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();
+            builder.Services.AddSingleton<ICoordinateLayerStore>(_ => new JsonCoordinateLayerStore());
+            builder.Services.AddSingleton<IFileDialogService, FileDialogService>();
+            builder.Services.AddSingleton<IMonitorStore>(_ => new JsonMonitorStore());
+            builder.Services.AddSingleton<IWatermarkReader, SqlServerWatermarkReader>();
+            builder.Services.AddSingleton<IReportWriter, XlsxReportWriter>();
+            builder.Services.AddSingleton<IMonitorCheckService, MonitorCheckService>();
+            builder.Services.AddSingleton<IFolderPickerService, FolderPickerService>();
+            builder.Services.AddSingleton<IAlertNotifier, AlertNotifier>();
+            builder.Services.AddSingleton<MonitoringViewModelFactory>();
+            builder.Services.AddSingleton<ConnectionViewModel>();
+            builder.Services.AddSingleton<MapViewModel>();
+            builder.Services.AddSingleton<MainViewModel>();
+            builder.Services.AddSingleton<MainWindow>();
+            _host = builder.Build();
+
+            splash.Report(2, StartupSteps, SplashStrings.StepStarting);
+            await _host.StartAsync();
+
+            splash.Report(3, StartupSteps, SplashStrings.StepInterface);
+            _theme = new ThemeService();
+            _theme.Start();
+            var main = _host.Services.GetRequiredService<MainWindow>();
+
+            var remaining = MinSplashTime - shownFor.Elapsed;
+            if (remaining > TimeSpan.Zero) await Task.Delay(remaining);
+
+            // The main window must be shown before the splash closes, otherwise the last-window rule would end the app.
+            MainWindow = main;
+            main.Show();
+            splash.Close();
+        }
+        catch (Exception ex)
+        {
+            splash.Close();
+            MessageBox.Show(ex.Message, "FastDbExplorer", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+        }
     }
 
     protected override async void OnExit(ExitEventArgs e)
