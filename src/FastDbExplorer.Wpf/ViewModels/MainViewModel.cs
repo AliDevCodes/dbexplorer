@@ -179,7 +179,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (section == AppSection.Connections) return _connection;
 
-        return _home ?? _homePrompt;
+        if (_home is not null) return _home;
+        return _homePrompt;
     }
 
     private void OnConnected(ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases, SavedConnection profile)
