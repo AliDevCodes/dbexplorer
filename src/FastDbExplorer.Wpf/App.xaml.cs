@@ -78,14 +78,8 @@ public partial class App : System.Windows.Application
             var remaining = MinSplashTime - shownFor.Elapsed;
             if (remaining > TimeSpan.Zero) await Task.Delay(remaining);
 
-            // Explicit shutdown mode lets the splash close before the login window is shown.
+            // Explicit shutdown mode lets the splash close before the main window is shown.
             splash.Close();
-            var login = new LoginWindow();
-            if (login.ShowDialog() != true)
-            {
-                Shutdown(0);
-                return;
-            }
 
             var main = _host.Services.GetRequiredService<MainWindow>();
             MainWindow = main;
