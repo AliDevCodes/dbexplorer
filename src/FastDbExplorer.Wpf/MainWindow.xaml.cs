@@ -14,7 +14,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
-        viewModel.ConnectionManager.SqlPasswordPrompt = PromptForSqlPasswordAsync;
         SourceInitialized += (_, _) => ThemeService.SetDarkTitleBar(this, ThemeService.IsDark());
         StateChanged += (_, _) => UpdateMaximizeState();
         PreviewKeyDown += OnSectionShortcut;
@@ -71,16 +70,18 @@ public partial class MainWindow : Window
         if (connected) return;
 
         combo.SelectedItem = viewModel.ActiveProfile;
+
+        // No password popup: a profile without a usable stored password is completed in the Connections form.
+        if (viewModel.ConnectionManager.NeedsPasswordInput)
+        {
+            viewModel.NavigateCommand.Execute(AppSection.Connections);
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(viewModel.ConnectionManager.ErrorMessage))
             MessageBox.Show(this, viewModel.ConnectionManager.ErrorMessage, WindowStrings.AppName,
                 MessageBoxButton.OK, MessageBoxImage.Warning, MessageBoxResult.OK,
                 MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading);
-    }
-
-    private Task<string?> PromptForSqlPasswordAsync(SavedConnection profile)
-    {
-        var prompt = new Views.SqlPasswordWindow(profile) { Owner = this };
-        return Task.FromResult(prompt.ShowDialog() == true ? prompt.Password : null);
     }
 
     private void OnPaletteRequested(CommandPaletteViewModel palette)

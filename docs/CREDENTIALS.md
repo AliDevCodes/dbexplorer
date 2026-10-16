@@ -1,58 +1,54 @@
-# Saved connections & optional password storage
+# Saved connections & encrypted password storage
 
-> Branch: `feature/saved-connection-credentials` (from `feature/nav-shell` @ `c761d3b`). **Status: written, NOT compiled/run by the AI** (no .NET in the AI sandbox). Owner must build + test on Windows.
-> **This document supersedes Master Context §2 rule 4 and decision D4** ("no passwords on disk"): there is now an *opt-in*, encrypted exception. Everything else in those rules still holds.
+> Branch: `feature/saved-connection-credentials` (from `feature/nav-shell` @ `c761d3b`).
+> **Status:** commit 1 (vault) built + unit-tested by the owner (tests ok after the guard fix); commit 2 (password field UX, below) written, NOT yet compiled/run.
+> **This document supersedes Master Context §2 rule 4 and decision D4** ("no passwords on disk"): a SQL password may now be stored, but only encrypted, only per profile, and never shown again.
 
-## What already existed (unchanged)
-Named profiles with friendly names, stable IDs, uniqueness check, save/delete/new, Connections screen, shell profile switcher, legacy JSON migration, `connections.json` without passwords.
+## Behaviour (commit 2)
+All connection data is entered in **one form** (Connections screen). There is **no password popup** any more.
 
-## What this change adds
-1. **Per-profile option "Remember password"** (SQL auth only, **off by default**). Persisted as the boolean `RememberPassword` in `connections.json` (a flag, not a secret).
-2. **`ICredentialVault`** (Application) + **`DpapiCredentialVault`** (Infrastructure): password encrypted with Windows DPAPI, `CurrentUser` scope, plus app entropy; stored as Base64 in `%AppData%\FastDbExplorer\credentials.json`, keyed by profile ID. Atomic write (temp file + move). Copying the file to another PC/account makes decryption fail, which is treated as "not saved" (user is asked again).
-3. **Connect flow** (`ConnectionViewModel.ConnectProfileAsync`):
-   - option on + vault has password -> no prompt, connect directly;
-   - otherwise the usual prompt; a typed password is stored **only after the server accepted it**;
-   - stored password rejected (`DatabaseErrorKind.LoginFailed`) -> entry deleted, clear Persian message, next connect prompts again.
-4. **Cleanup rules**: option turned off, profile deleted, or server/auth/user changed on save -> vault entry removed.
-5. **UI**: checkbox + note in the SQL-auth block; small lock icon on remembered profiles in the list; updated password notes (new `Localization/CredentialStrings.cs`; old `ShellStrings.SqlPasswordPromptNote` / `ProfilePasswordStorageNote` are now unused).
+| Situation | Password field |
+|---|---|
+| New profile / SQL auth | Editable `PasswordBox`, hidden by default, eye button toggles show/hide |
+| After Save/Connect | Password stored encrypted, typed text cleared from UI/memory, eye toggle gone |
+| Saved profile selected | Locked mask `••••••••••••` (fixed length, reveals nothing) + "Change password" button; no show button |
+| "Change password" | Field becomes editable again (empty), eye toggle available, "Cancel" link; Save replaces the stored password (empty + Save keeps the old one) |
+| Connect / switch profile (shell selector) | Reads the stored password from the vault; **no prompt** |
+| Profile has no usable stored password | Message in the form; switching from the shell selector jumps to Connections |
+| Windows auth | No password field at all |
 
-## Previous vs new behaviour
-| | Before | After |
-|---|---|---|
-| SQL password | prompted on every connect, memory only | same by default; opt-in: kept encrypted, reused automatically |
-| `connections.json` | no secrets | no secrets (+ `RememberPassword` flag) |
-| Windows auth | no password | unchanged (option hidden, never stored) |
+Rules: server/auth/user changed on a profile -> stored password deleted (message shown). Stored password rejected by the server (`LoginFailed`) -> deleted + message, form unlocked. Profile deleted -> entry deleted. Unreadable entry (other Windows account / damaged file) -> treated as "not saved".
+The removed "Remember password" checkbox: saving a SQL profile *with a typed password* now stores it (that is the purpose of the form). Saving without a password stores nothing.
+
+## Security
+- Storage: `DpapiCredentialVault` = Windows DPAPI, **CurrentUser** scope + app entropy, Base64 in `%AppData%\FastDbExplorer\credentials.json`. Other Windows users (and other PCs) cannot decrypt it. `connections.json` only contains the boolean `RememberPassword` (meaning "an encrypted password exists").
+- The UI has **no way to read or show** a stored password; the vault value is read only inside `ConnectProfileAsync` to open the connection.
+- Honest limits: DPAPI does not protect against malware running as the same Windows user; the .NET `string` holding the password during connect cannot be wiped (byte buffers in the vault are zeroed). Do not use on shared Windows accounts.
+- Accessibility: password field and toggle have `AutomationProperties.Name`; the toggle is a normal focusable button (Tab, Space/Enter), its name/tooltip switch between show/hide; focus stays on the toggle; focus moves to the field when "Change password" is pressed.
 
 ## Files
-New: `Application/Abstractions/CredentialAbstractions.cs`, `Infrastructure/DpapiCredentialVault.cs`, `Wpf/Localization/CredentialStrings.cs`, `tests/.../CredentialVaultTests.cs`, this doc.
-Modified: `Domain/Models.cs` (`SavedConnection.RememberPassword`), `Infrastructure/*.csproj` (package), `Wpf/ViewModels/ConnectionViewModel.cs`, `Wpf/Views/ConnectionsView.xaml`, `Wpf/App.xaml.cs` (DI line), `CLAUDE.md`.
-
-## Decisions to record in DECISIONS.md on merge
-- **Opt-in encrypted password storage** (DPAPI, current user) replaces the blanket "no passwords on disk" rule. Default stays off. Reason: owner asked for persistent credentials; DPAPI avoids plain text and avoids custom crypto.
-- **New dependency** `System.Security.Cryptography.ProtectedData 10.*` (floating like the other packages; pin after first restore). Alternative without a package: P/Invoke `CryptProtectData`.
-
-## Security notes
-- DPAPI protects against other users/PCs and file theft, **not** against malware running as the same Windows user. Do not enable it on shared accounts.
-- Plaintext password exists only in memory while connecting/connected (as before). Byte buffers are zeroed after use; the .NET `string` itself cannot be wiped.
-- Not covered: key rotation/versioning (entropy string has `.v1` suffix to allow it later).
+Commit 1: `Application/Abstractions/CredentialAbstractions.cs`, `Infrastructure/DpapiCredentialVault.cs` (+ package `System.Security.Cryptography.ProtectedData 10.*`), `Domain/Models.cs` (`RememberPassword`), tests.
+Commit 2: `Wpf/ViewModels/ConnectionViewModel.cs` (password state + flows, popup removed), `Wpf/Views/ConnectionsView.xaml` + `.xaml.cs` (field, toggle, mask, PasswordBox sync), `Wpf/MainWindow.xaml.cs` (popup wiring removed, jump to Connections), `Wpf/Localization/CredentialStrings.cs`, this doc, `CLAUDE.md`.
+`Views/SqlPasswordWindow.*` is now unused (not deleted yet; safe to remove after you confirm the build).
 
 ## Manual test checklist
-1. `dotnet build FastDbExplorer.slnx` and `dotnet test` (new `CredentialVaultTests`).
-2. Existing profiles load; checkbox is off for all.
-3. SQL profile: tick "remember" -> Connect -> password prompt -> success -> Disconnect -> Connect again: **no prompt**.
-4. Open `connections.json`: `"RememberPassword": true`, no password. Open `credentials.json`: Base64 only, plaintext password absent.
-5. Untick + Save -> next connect prompts; entry gone from `credentials.json`.
-6. Make the stored password wrong (change it on the server) -> connect fails with login error + "stored password was cleared" message -> next connect prompts.
-7. Change server or user name of a remembered profile + Save -> entry removed.
-8. Delete a remembered profile -> entry removed.
-9. Windows-auth profile: checkbox hidden, nothing stored.
-10. Shell profile switcher on a remembered profile connects without a prompt.
-11. Check light/dark theme and RTL of the checkbox, notes and lock icon (glyph `E72E`).
-12. Copy `credentials.json` to another Windows account: profile behaves as "not saved" (prompt, no crash).
+1. Build + `dotnet test`.
+2. New SQL profile: password is dots by default; eye shows it; eye again hides it; Tab reaches the eye; Space/Enter toggles; Narrator reads "Show/Hide password".
+3. Save: field turns into the locked mask, no eye, "Change password" visible, typed text gone.
+4. Connect: **no popup**. Disconnect, then switch via the shell profile selector: **no prompt**.
+5. Close and reopen the app, connect: **no prompt**.
+6. `credentials.json` has Base64 only; `connections.json` has no password value.
+7. Change password: press the button, field is empty and editable; type a new one, Save, Connect works. Cancel restores the mask. Empty + Save keeps the old password.
+8. Wrong password: login error + "cleared" message, field editable again, nothing stored.
+9. Change server or user of a saved profile + Save: message that the password was cleared.
+10. Delete profile: entry removed from `credentials.json`.
+11. Profile without password, switched from the selector: lands on Connections with the message (no popup).
+12. Other Windows user: sign in with another Windows account, copy `credentials.json`: profile behaves as "no stored password"; nothing is shown or crashes.
+13. Windows-auth profiles unchanged. Check light/dark and RTL of the new row (eye glyphs `E7B3`/`ED1A`).
 
 ## Known risks / not verified
-- Whole change uncompiled. Likely trouble spots: package restore (`10.*`), `Segoe Fluent Icons` fallback glyph, `SqlPasswordWindow` text may still claim the password is not kept (not inspected).
-- Failed vault write is silent (connect still works, user is simply asked again next time).
+- Commit 2 is uncompiled (XAML + view model + code-behind). Likely trouble: glyph availability, `AutomationProperties` setters in the style, PasswordBox sync.
+- Silent failure policy: if the vault cannot be written, saving is refused with an error (nothing half-saved).
 
 ## Rollback
-Delete the branch, or revert the commit. `credentials.json` can be deleted at any time; `RememberPassword` in `connections.json` is ignored by older builds.
+Revert commit 2 to return to the "remember checkbox + popup" behaviour, or delete the branch. `credentials.json` can be deleted any time.

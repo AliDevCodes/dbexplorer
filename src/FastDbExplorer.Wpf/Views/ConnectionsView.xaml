@@ -73,11 +73,54 @@
             <StackPanel Visibility="{Binding UseSqlAuth, Converter={StaticResource BoolToVis}}">
               <TextBlock Text="{x:Static l:Strings.UserName}" Style="{StaticResource FieldLabel}" />
               <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" FlowDirection="LeftToRight" Margin="0,0,0,12" />
-              <CheckBox Content="{x:Static l:CredentialStrings.RememberPassword}" IsChecked="{Binding RememberPassword}" Margin="0,0,0,6" />
-              <TextBlock Text="{x:Static l:CredentialStrings.RememberPasswordNote}" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,12" />
-              <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="10" Padding="12,10" Margin="0,0,0,14">
-                <TextBlock Text="{x:Static l:CredentialStrings.PasswordPromptNote}" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" />
-              </Border>
+
+              <TextBlock Text="{x:Static l:CredentialStrings.PasswordLabel}" Style="{StaticResource FieldLabel}" />
+
+              <!-- New profile, or "change password": editable input with a show/hide toggle (hidden by default). -->
+              <Grid Margin="0,0,0,8" Visibility="{Binding IsPasswordEditable, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <PasswordBox x:Name="PasswordInput" FlowDirection="LeftToRight"
+                             AutomationProperties.Name="{x:Static l:CredentialStrings.PasswordLabel}"
+                             Visibility="{Binding IsPasswordMasked, Converter={StaticResource BoolToVis}}" />
+                <TextBox x:Name="PasswordReveal" Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}" FlowDirection="LeftToRight"
+                         AutomationProperties.Name="{x:Static l:CredentialStrings.PasswordLabel}"
+                         Visibility="{Binding IsPasswordRevealed, Converter={StaticResource BoolToVis}}" />
+                <Button Grid.Column="1" Margin="6,0,0,0" Command="{Binding TogglePasswordVisibilityCommand}">
+                  <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                      <Setter Property="Content" Value="&#xE7B3;" />
+                      <Setter Property="ToolTip" Value="{x:Static l:CredentialStrings.ShowPassword}" />
+                      <Setter Property="AutomationProperties.Name" Value="{x:Static l:CredentialStrings.ShowPassword}" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding ShowPassword}" Value="True">
+                          <Setter Property="Content" Value="&#xED1A;" />
+                          <Setter Property="ToolTip" Value="{x:Static l:CredentialStrings.HidePassword}" />
+                          <Setter Property="AutomationProperties.Name" Value="{x:Static l:CredentialStrings.HidePassword}" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Button.Style>
+                </Button>
+              </Grid>
+
+              <!-- Saved profile: the password is never shown and cannot be revealed; it can only be replaced. -->
+              <Grid Margin="0,0,0,8" Visibility="{Binding IsStoredPasswordLocked, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="10" Padding="12,9"
+                        AutomationProperties.Name="{x:Static l:CredentialStrings.StoredPasswordMaskLabel}">
+                  <TextBlock Text="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;" FlowDirection="LeftToRight" HorizontalAlignment="Left" Style="{StaticResource Muted}" />
+                </Border>
+                <Button Grid.Column="1" Margin="8,0,0,0" Content="{x:Static l:CredentialStrings.ChangePassword}" Command="{Binding ChangePasswordCommand}" />
+              </Grid>
+
+              <Button HorizontalAlignment="Left" Margin="0,0,0,8" Content="{x:Static l:CredentialStrings.CancelChangePassword}"
+                      Command="{Binding CancelPasswordChangeCommand}"
+                      Visibility="{Binding IsChangingPassword, Converter={StaticResource BoolToVis}}" />
+
+              <TextBlock Text="{x:Static l:CredentialStrings.PasswordInputNote}" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,14"
+                         Visibility="{Binding IsPasswordEditable, Converter={StaticResource BoolToVis}}" />
+              <TextBlock Text="{x:Static l:CredentialStrings.StoredPasswordNote}" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,14"
+                         Visibility="{Binding IsStoredPasswordLocked, Converter={StaticResource BoolToVis}}" />
             </StackPanel>
 
             <CheckBox Content="{x:Static l:Strings.TrustCert}" IsChecked="{Binding TrustServerCertificate}" Margin="0,0,0,18" />

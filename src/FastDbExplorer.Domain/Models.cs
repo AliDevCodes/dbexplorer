@@ -13,8 +13,9 @@ public sealed record ConnectionSettings(
     bool TrustServerCertificate);
 
 /// <summary>
-/// A remembered connection. It has no password field: <see cref="RememberPassword"/> only says whether the
-/// encrypted credential vault (ICredentialVault) may keep the SQL password for this profile. Off by default.
+/// A remembered connection. It has no password field: <see cref="RememberPassword"/> only says that an encrypted
+/// SQL password is stored for this profile in the credential vault (ICredentialVault). The password itself is never
+/// part of this record, never written to connections.json and never shown in the UI.
 /// </summary>
 public sealed record SavedConnection
 {
