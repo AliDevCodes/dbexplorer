@@ -88,18 +88,26 @@
                 <Button Grid.Column="1" Margin="6,0,0,0" Command="{Binding TogglePasswordVisibilityCommand}">
                   <Button.Style>
                     <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
-                      <Setter Property="Content" Value="&#xE7B3;" />
                       <Setter Property="ToolTip" Value="{x:Static l:CredentialStrings.ShowPassword}" />
                       <Setter Property="AutomationProperties.Name" Value="{x:Static l:CredentialStrings.ShowPassword}" />
                       <Style.Triggers>
                         <DataTrigger Binding="{Binding ShowPassword}" Value="True">
-                          <Setter Property="Content" Value="&#xED1A;" />
                           <Setter Property="ToolTip" Value="{x:Static l:CredentialStrings.HidePassword}" />
                           <Setter Property="AutomationProperties.Name" Value="{x:Static l:CredentialStrings.HidePassword}" />
                         </DataTrigger>
                       </Style.Triggers>
                     </Style>
                   </Button.Style>
+                  <!-- Drawn as vector shapes (eye, plus a slash while the password is visible): no dependency on any icon font. -->
+                  <Viewbox Width="20" Height="20">
+                    <Canvas Width="24" Height="24">
+                      <Path Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                            Data="M12 5 C7 5 2.7 8.1 1 12 c1.7 3.9 6 7 11 7 s9.3 -3.1 11 -7 c-1.7 -3.9 -6 -7 -11 -7 z M12 8.5 a3.5 3.5 0 1 0 0 7 a3.5 3.5 0 1 0 0 -7 z M12 10.5 a1.5 1.5 0 1 0 0 3 a1.5 1.5 0 1 0 0 -3 z" />
+                      <Path Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                            Data="M3.5 2.5 L21.5 20.5 L20 22 L2 4 z"
+                            Visibility="{Binding ShowPassword, Converter={StaticResource BoolToVis}}" />
+                    </Canvas>
+                  </Viewbox>
                 </Button>
               </Grid>
 

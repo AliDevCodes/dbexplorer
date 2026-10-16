@@ -1,11 +1,16 @@
-// Excel coordinate layers (Phase 2): a marker (halo + dot + label) and a radius circle for every point, drawn on top of the
-// opened map. Independent of the tile layers in map.html; map.html only calls coordAttach(map, dark) when it creates
-// a map and forwards "coord*" host messages to coordHandle(m).
+// Excel coordinate layers (Phase 2): a marker (halo + dot + label, or an icon marker) and a radius circle for every point,
+// drawn on top of the opened map. Independent of the tile layers in map.html; map.html only calls coordAttach(map, dark)
+// when it creates a map and forwards "coord*" host messages to coordHandle(m).
 //
 // The host sends ready-made GeoJSON: points, and radius circles as polygons whose vertices are real WGS84 positions
 // computed in C# (GeoMath.CircleRing). This page never converts metres, so circles stay metre-accurate at every
 // latitude and zoom (MapLibre projects the polygon to Web Mercator). Layers are cached here, so they are redrawn
 // when a different map file is opened and the map is rebuilt.
+//
+// Marker style: the host sends a colour (#RRGGBB) and, optionally, an icon as SVG path data (24x24 grid, even-odd).
+// With an icon the page draws a coloured disc with the white glyph (canvas + Path2D) and shows it as a symbol layer;
+// an invisible circle layer stays underneath so hover and click keep working. Without an icon: halo + dot as before.
+// A style change arrives as a normal "coordUpsert"; the layer is rebuilt when its colour/icon differs from what is drawn.
 //
 // Interaction: hovering a point shows a tooltip with its name (and posts "pointHover" so the host can show it in the
 // status bar); clicking a point highlights it and posts "pointSelect"; clicking empty map clears the highlight.
@@ -13,7 +18,7 @@
   'use strict';
 
   const FONT = ['NotoSans'];
-  const PARTS = ['fill', 'line', 'halo', 'dot', 'label'];
+  const PARTS = ['fill', 'line', 'halo', 'dot', 'icon', 'label'];
   const SEL_SRC = 'coord|selected|src', SEL_HALO = 'coord|selected|halo', SEL_RING = 'coord|selected|ring';
   const HIT_RADIUS = 9; // px around the cursor in which a point counts as hit
 
@@ -21,6 +26,7 @@
   const post = (m) => host && host.postMessage(m);
 
   const layers = new Map();      // layer id -> last "coordUpsert" message (name/visible kept up to date)
+  const drawn = new Map();       // layer id -> style signature (colour|iconPath) currently on the map
   let cmap = null, ready = false, dark = true;
   let pendingFit = null;
   let selected = null;           // { layerId, pointId } of the highlighted point
@@ -30,8 +36,9 @@
 
   const lid = (id, part) => 'coord|' + id + '|' + part;
   const sid = (id, part) => 'coord|' + id + '|src-' + part;
+  const imgName = (id) => 'coord|' + id + '|marker';
   const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
-  const colorOf = (id) => `hsl(${hue(id)}, 70%, ${dark ? 62 : 42}%)`;
+  const colorOf = (id) => `hsl(${hue(id)}, 70%, ${dark ? 62 : 42}%)`; // fallback only: the host normally sends a colour
   const accent = () => (dark ? '#8A90FF' : '#4F46E5');
   const empty = () => ({ type: 'FeatureCollection', features: [] });
   const clipText = (value, limit) => {
@@ -133,15 +140,46 @@
       if (cmap.getLayer(lid(id, p))) cmap.setLayoutProperty(lid(id, p), 'visibility', visible ? 'visible' : 'none');
   }
 
+  // A round marker: coloured disc, white ring and the white glyph. 64 px drawn, shown at pixelRatio 2 (= 32 css px).
+  function makeMarker(color, pathData) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const g = canvas.getContext('2d');
+    g.beginPath();
+    g.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+    g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
+    g.fillStyle = color; g.fill();
+    g.shadowColor = 'transparent';
+    g.lineWidth = 3; g.strokeStyle = '#FFFFFF'; g.stroke();
+    const glyph = 30, scale = glyph / 24, offset = (size - glyph) / 2;
+    g.save();
+    g.translate(offset, offset);
+    g.scale(scale, scale);
+    g.fillStyle = '#FFFFFF';
+    g.fill(new Path2D(pathData), 'evenodd');
+    g.restore();
+    return g.getImageData(0, 0, size, size);
+  }
+
   function draw(l) {
     if (!cmap || !ready) return;
     const pointsId = sid(l.id, 'points'), circlesId = sid(l.id, 'circles');
+    const style = (l.color || '') + '|' + (l.iconPath || '');
+
+    // Colour or icon changed: rebuild this layer's map layers (the source data is replaced below anyway).
+    if (cmap.getSource(pointsId) && drawn.get(l.id) !== style) remove(l.id);
 
     if (cmap.getSource(pointsId)) {
       cmap.getSource(pointsId).setData(l.points);
       cmap.getSource(circlesId).setData(l.circles);
     } else {
-      const c = colorOf(l.id);
+      const c = l.color || colorOf(l.id);
+      let marker = null;
+      if (l.iconPath) {
+        try { marker = makeMarker(c, l.iconPath); } catch (_) { marker = null; } // a bad glyph falls back to the dot
+      }
+
       cmap.addSource(circlesId, { type: 'geojson', data: l.circles });
       cmap.addSource(pointsId, { type: 'geojson', data: l.points });
       // Radius area: light fill + crisp dashed outline, so overlapping circles stay readable.
@@ -150,17 +188,32 @@
       cmap.addLayer({ id: lid(l.id, 'line'), type: 'line', source: circlesId,
         layout: { 'line-join': 'round' },
         paint: { 'line-color': c, 'line-width': 1.8, 'line-opacity': 0.9, 'line-dasharray': [3, 2] } });
-      // Point marker: soft halo + solid dot with a white ring, growing a little with the zoom.
-      cmap.addLayer({ id: lid(l.id, 'halo'), type: 'circle', source: pointsId,
-        paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 6, 10, 11, 16, 15],
-                 'circle-color': c, 'circle-opacity': 0.22, 'circle-blur': 0.4 } });
-      cmap.addLayer({ id: lid(l.id, 'dot'), type: 'circle', source: pointsId,
-        paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.5, 10, 6, 16, 8],
-                 'circle-color': c, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
+
+      if (marker) {
+        const name = imgName(l.id);
+        if (cmap.hasImage(name)) cmap.removeImage(name);
+        cmap.addImage(name, marker, { pixelRatio: 2 });
+        // Invisible hit target (hover/click query the 'dot' layer); the icon is what the user sees.
+        cmap.addLayer({ id: lid(l.id, 'dot'), type: 'circle', source: pointsId,
+          paint: { 'circle-radius': 13, 'circle-color': c, 'circle-opacity': 0.01 } });
+        cmap.addLayer({ id: lid(l.id, 'icon'), type: 'symbol', source: pointsId,
+          layout: { 'icon-image': name, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.6, 10, 0.85, 16, 1.1] } });
+      } else {
+        // Point marker: soft halo + solid dot with a white ring, growing a little with the zoom.
+        cmap.addLayer({ id: lid(l.id, 'halo'), type: 'circle', source: pointsId,
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 6, 10, 11, 16, 15],
+                   'circle-color': c, 'circle-opacity': 0.22, 'circle-blur': 0.4 } });
+        cmap.addLayer({ id: lid(l.id, 'dot'), type: 'circle', source: pointsId,
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.5, 10, 6, 16, 8],
+                   'circle-color': c, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
+      }
+
       cmap.addLayer({ id: lid(l.id, 'label'), type: 'symbol', source: pointsId, minzoom: 8,
         layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12, 'text-anchor': 'top',
-                  'text-offset': [0, 1.2], 'text-optional': true },
+                  'text-offset': [0, marker ? 1.9 : 1.2], 'text-optional': true },
         paint: { 'text-color': dark ? '#E8ECF8' : '#1B2033', 'text-halo-color': dark ? '#0E1220' : '#FFFFFF', 'text-halo-width': 1.8 } });
+      drawn.set(l.id, style);
     }
     setVisible(l.id, l.visible);
     revalidateSelection(l);
@@ -171,6 +224,8 @@
     if (!cmap || !ready) return;
     for (const p of PARTS) if (cmap.getLayer(lid(id, p))) cmap.removeLayer(lid(id, p));
     for (const p of ['points', 'circles']) if (cmap.getSource(sid(id, p))) cmap.removeSource(sid(id, p));
+    if (cmap.hasImage(imgName(id))) cmap.removeImage(imgName(id)); // after its layer is gone
+    drawn.delete(id);
   }
 
   function fit(id) {
@@ -301,6 +356,7 @@
     const hadState = selected !== null || hovered !== null;
     cmap = map; ready = false; dark = isDark;
     selected = null; hovered = null; hideTip();
+    drawn.clear(); // a new map has none of our layers yet
     if (hadState) { post({ type: 'pointHover', name: null, layer: null }); post({ type: 'pointSelect', selected: false }); }
 
     map.on('load', () => {

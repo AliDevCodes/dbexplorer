@@ -17,6 +17,7 @@ namespace FastDbExplorer.Wpf.Views;
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
 /// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit" /
 /// "coordRename" / "coordSelectClear"); the page answers with "pointHover" and "pointSelect".
+/// "coordUpsert" also carries the marker style (color, iconKey, iconPath); a style change simply sends the layer again.
 /// The page also reports its camera ("view"); the view model keeps it, because this view is rebuilt every time the
 /// user returns to the map section, and the next "load" message carries the saved camera back.
 /// </summary>
@@ -271,6 +272,10 @@ public partial class MapView : UserControl
         name = layer.Name,
         visible = layer.Visibility,
         radiusMeters = layer.RadiusMeters,
+        // Marker style: the colour is always resolved here (chosen or automatic), the icon travels as SVG path data.
+        color = MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color),
+        iconKey = layer.IconKey,
+        iconPath = MapMarkerCatalog.Find(layer.IconKey)?.PathData,
         points = CoordinateLayerGeoJson.Points(layer),
         circles = CoordinateLayerGeoJson.Circles(layer),
         bounds = CoordinateLayerGeoJson.Bounds(layer)
