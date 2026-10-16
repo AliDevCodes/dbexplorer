@@ -1,7 +1,11 @@
 # Saved connections & encrypted password storage
 
 > Branch: `feature/saved-connection-credentials` (from `feature/nav-shell` @ `c761d3b`).
-> **Status:** commit 1 (vault) built + unit-tested by the owner (tests ok after the guard fix); commit 2 (password field UX, below) written, NOT yet compiled/run.
+> **Status (verified vs not):**
+> - Commit 1 (vault): the 4 new vault unit tests passed on the owner's machine. Two older profile-store tests failed only because of the new flag name; fixed in `ae1981c`, **re-run pending**.
+> - The WPF project has **not been built yet** by anyone (the owner's first run stopped at the test step).
+> - Commit 2 (password field UX, below): written, **NOT compiled or run**.
+>
 > **This document supersedes Master Context §2 rule 4 and decision D4** ("no passwords on disk"): a SQL password may now be stored, but only encrypted, only per profile, and never shown again.
 
 ## Behaviour (commit 2)
@@ -18,7 +22,7 @@ All connection data is entered in **one form** (Connections screen). There is **
 | Windows auth | No password field at all |
 
 Rules: server/auth/user changed on a profile -> stored password deleted (message shown). Stored password rejected by the server (`LoginFailed`) -> deleted + message, form unlocked. Profile deleted -> entry deleted. Unreadable entry (other Windows account / damaged file) -> treated as "not saved".
-The removed "Remember password" checkbox: saving a SQL profile *with a typed password* now stores it (that is the purpose of the form). Saving without a password stores nothing.
+The removed "Remember password" checkbox: saving a SQL profile *with a typed password* now stores it (that is the purpose of the form). Saving without a password stores nothing. The Connect button works on a saved profile (as before), so: type password -> Save -> Connect.
 
 ## Security
 - Storage: `DpapiCredentialVault` = Windows DPAPI, **CurrentUser** scope + app entropy, Base64 in `%AppData%\FastDbExplorer\credentials.json`. Other Windows users (and other PCs) cannot decrypt it. `connections.json` only contains the boolean `RememberPassword` (meaning "an encrypted password exists").
@@ -48,7 +52,8 @@ Commit 2: `Wpf/ViewModels/ConnectionViewModel.cs` (password state + flows, popup
 
 ## Known risks / not verified
 - Commit 2 is uncompiled (XAML + view model + code-behind). Likely trouble: glyph availability, `AutomationProperties` setters in the style, PasswordBox sync.
-- Silent failure policy: if the vault cannot be written, saving is refused with an error (nothing half-saved).
+- NuGet warnings NU1902/NU1903 on `System.Security.Cryptography.Pkcs 9.0.11` appeared at restore. Probably transitive from `Microsoft.Data.SqlClient` (not from this change), not yet confirmed.
+- If the vault cannot be written, saving is refused with an error (nothing half-saved).
 
 ## Rollback
 Revert commit 2 to return to the "remember checkbox + popup" behaviour, or delete the branch. `credentials.json` can be deleted any time.
