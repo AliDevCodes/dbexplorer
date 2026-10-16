@@ -60,6 +60,9 @@ public class JsonConnectionProfileStoreTests : IDisposable
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "fde-tests-" + Guid.NewGuid());
     private string FilePath => Path.Combine(_dir, "connections.json");
 
+    // The only allowed mention of "password" in the profile file is the opt-in flag NAME (never a password value).
+    private static string WithoutRememberFlag(string json) => json.Replace("RememberPassword", "", StringComparison.Ordinal);
+
     [Fact]
     public void Saved_connection_keeps_the_legacy_constructor_and_deconstruction_shape()
     {
@@ -81,7 +84,22 @@ public class JsonConnectionProfileStoreTests : IDisposable
         await store.SaveAsync(c with { Server = "srv1" });
 
         Assert.Single(await store.LoadAsync());
-        Assert.DoesNotContain("assword", await File.ReadAllTextAsync(FilePath));
+        Assert.DoesNotContain("assword", WithoutRememberFlag(await File.ReadAllTextAsync(FilePath)));
+    }
+
+    [Fact]
+    public async Task Remember_password_flag_defaults_to_off_and_round_trips()
+    {
+        var store = new JsonConnectionProfileStore(FilePath);
+        var plain = new SavedConnection("srv", AuthenticationMode.SqlServer, "reader", "A", Id: Guid.NewGuid());
+        var remembered = new SavedConnection("srv", AuthenticationMode.SqlServer, "reader2", "B", Id: Guid.NewGuid(), RememberPassword: true);
+
+        await store.SaveAsync(plain);
+        await store.SaveAsync(remembered);
+
+        var profiles = await store.LoadAsync();
+        Assert.False(profiles.Single(p => p.Id == plain.Id).RememberPassword);
+        Assert.True(profiles.Single(p => p.Id == remembered.Id).RememberPassword);
     }
 
     [Fact]
@@ -108,7 +126,8 @@ public class JsonConnectionProfileStoreTests : IDisposable
         Assert.NotEqual(Guid.Empty, first.Id);
         Assert.Equal(first.Id, second.Id);
         Assert.True(first.TrustServerCertificate);
-        Assert.False(savedJson.Contains("Password", StringComparison.OrdinalIgnoreCase));
+        Assert.False(first.RememberPassword); // legacy profiles never opt in by themselves
+        Assert.False(WithoutRememberFlag(savedJson).Contains("Password", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
