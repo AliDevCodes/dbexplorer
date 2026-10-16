@@ -9,6 +9,8 @@ namespace FastDbExplorer.Infrastructure.CoordinateLayers;
 /// Writes go to a temp file first and are then moved over the target, so a crash cannot leave a half-written layer.
 /// A damaged file, a file from a newer version or a file that breaks the layer rules is skipped (and left on disk),
 /// so one bad file never stops the application or hides the other layers.
+/// The marker style (iconKey, color) is optional: older files without it load with the default marker, and an unknown
+/// icon or an invalid colour is dropped instead of rejecting the whole layer.
 /// </summary>
 public sealed class JsonCoordinateLayerStore : ICoordinateLayerStore
 {
@@ -127,7 +129,12 @@ public sealed class JsonCoordinateLayerStore : ICoordinateLayerStore
         }
 
         // The MapLayer constructor re-validates everything; it throws ArgumentException for a file that breaks the rules.
-        return new MapLayer(file.Id, file.Name, file.FileName, points, file.Visibility, file.RadiusMeters);
+        var layer = new MapLayer(file.Id, file.Name, file.FileName, points, file.Visibility, file.RadiusMeters)
+        {
+            IconKey = MapMarkerCatalog.Find(file.IconKey) is null ? null : file.IconKey,
+            Color = MapMarkerCatalog.IsValidColor(file.Color) ? file.Color!.ToUpperInvariant() : null
+        };
+        return layer;
     }
 
     private static LayerFile ToDto(MapLayer layer) => new(
@@ -137,9 +144,12 @@ public sealed class JsonCoordinateLayerStore : ICoordinateLayerStore
         layer.FileName,
         layer.Visibility,
         layer.RadiusMeters,
-        layer.Points.Select(p => new PointEntry(p.Id, p.Name, p.Latitude, p.Longitude)).ToList());
+        layer.Points.Select(p => new PointEntry(p.Id, p.Name, p.Latitude, p.Longitude)).ToList(),
+        layer.IconKey,
+        layer.Color);
 
     // On-disk shape (version 1). Kept separate from the domain types so the file format can evolve on its own.
+    // IconKey and Color were added later as optional fields: files without them still load.
     internal sealed record LayerFile(
         int Version,
         Guid Id,
@@ -147,7 +157,9 @@ public sealed class JsonCoordinateLayerStore : ICoordinateLayerStore
         string FileName,
         bool Visibility,
         double RadiusMeters,
-        List<PointEntry>? Points);
+        List<PointEntry>? Points,
+        string? IconKey = null,
+        string? Color = null);
 
     internal sealed record PointEntry(Guid Id, string Name, double Latitude, double Longitude);
 }

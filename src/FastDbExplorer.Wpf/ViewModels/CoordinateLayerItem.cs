@@ -1,13 +1,15 @@
 using System.Globalization;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.Services;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
 /// <summary>
-/// One imported Excel layer in the panel: name, point count, radius (metres), visibility,
+/// One imported Excel layer in the panel: name, point count, radius (metres), visibility, marker icon/colour,
 /// and the zoom / refresh / rename / delete commands.
 /// </summary>
 public sealed partial class CoordinateLayerItem : ObservableObject
@@ -19,6 +21,8 @@ public sealed partial class CoordinateLayerItem : ObservableObject
     {
         _owner = owner;
         Layer = layer;
+        IconChoices = [new IconChoice(this, null), .. MapMarkerCatalog.Icons.Select(icon => new IconChoice(this, icon.Key))];
+        ColorChoices = [.. MapMarkerCatalog.Palette.Select(hex => new ColorChoice(this, hex))];
         _syncing = true;
         try
         {
@@ -29,6 +33,7 @@ public sealed partial class CoordinateLayerItem : ObservableObject
         {
             _syncing = false;
         }
+        RefreshStyleState();
     }
 
     public MapLayer Layer { get; private set; }
@@ -47,7 +52,21 @@ public sealed partial class CoordinateLayerItem : ObservableObject
     /// <summary>"شعاع 500 متر" or "بدون شعاع" (the applied radius, not the text being typed).</summary>
     public string RadiusSummary => CoordinateStrings.RadiusChip(Layer.RadiusMeters);
 
+    /// <summary>One line under the name in the collapsed card.</summary>
+    public string Subtitle => PointsText + " · " + RadiusSummary;
+
+    // ---- marker style (icon + colour) -------------------------------------------------------------------------
+
+    public IReadOnlyList<IconChoice> IconChoices { get; }
+    public IReadOnlyList<ColorChoice> ColorChoices { get; }
+
+    public Geometry? IconShape => MapIconGeometry.For(Layer.IconKey);
+    public bool HasIcon => IconShape is not null;
+    public bool HasNoIcon => !HasIcon;
+    public Brush ColorBrush => MapIconGeometry.BrushFor(MapMarkerCatalog.EffectiveColor(Layer.Id, Layer.Color));
+
     [ObservableProperty] private bool _isVisible;
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _radiusText = "";
     [ObservableProperty] private string _radiusError = "";
 
@@ -70,6 +89,9 @@ public sealed partial class CoordinateLayerItem : ObservableObject
     {
         if (!_syncing) _owner.OnCoordinateLayerVisibilityChanged(this, value);
     }
+
+    [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
 
     [RelayCommand]
     private Task ApplyRadiusAsync() => _owner.ApplyRadiusAsync(this);
@@ -116,6 +138,34 @@ public sealed partial class CoordinateLayerItem : ObservableObject
         IsConfirmingDelete = false; // stays visible only when the removal failed
     }
 
+    /// <summary>Chosen in the picker: null = the default dot marker.</summary>
+    internal void SetIcon(string? key)
+    {
+        if (Layer.IconKey == key) return;
+        Layer.IconKey = key;
+        RefreshStyleState();
+        _ = _owner.ApplyLayerStyleAsync(this);
+    }
+
+    internal void SetColor(string hex)
+    {
+        if (string.Equals(Layer.Color, hex, StringComparison.OrdinalIgnoreCase)) return;
+        Layer.Color = hex;
+        RefreshStyleState();
+        _ = _owner.ApplyLayerStyleAsync(this);
+    }
+
+    private void RefreshStyleState()
+    {
+        var effective = MapMarkerCatalog.EffectiveColor(Layer.Id, Layer.Color);
+        foreach (var choice in IconChoices) choice.IsSelected = choice.Key == Layer.IconKey;
+        foreach (var choice in ColorChoices) choice.IsSelected = string.Equals(choice.Hex, effective, StringComparison.OrdinalIgnoreCase);
+        OnPropertyChanged(nameof(IconShape));
+        OnPropertyChanged(nameof(HasIcon));
+        OnPropertyChanged(nameof(HasNoIcon));
+        OnPropertyChanged(nameof(ColorBrush));
+    }
+
     /// <summary>Takes over a freshly loaded copy of the layer without triggering a save.</summary>
     internal void Sync(MapLayer layer)
     {
@@ -132,6 +182,7 @@ public sealed partial class CoordinateLayerItem : ObservableObject
             _syncing = false;
         }
         NotifyLayerDataChanged();
+        RefreshStyleState();
     }
 
     /// <summary>Raises the change notifications for everything derived from the model (name, counts, radius chip).</summary>
@@ -142,6 +193,7 @@ public sealed partial class CoordinateLayerItem : ObservableObject
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(PointsText));
         OnPropertyChanged(nameof(RadiusSummary));
+        OnPropertyChanged(nameof(Subtitle));
     }
 
     internal static string FormatRadius(double meters) => meters.ToString("0.###", CultureInfo.InvariantCulture);

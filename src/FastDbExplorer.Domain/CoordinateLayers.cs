@@ -106,6 +106,12 @@ public sealed class MapLayer
             _radiusMeters = value;
         }
     }
+
+    /// <summary>Marker icon key from <see cref="MapMarkerCatalog"/>; null = the classic dot marker.</summary>
+    public string? IconKey { get; set; }
+
+    /// <summary>Marker colour as #RRGGBB; null = an automatic palette colour (see <see cref="MapMarkerCatalog.EffectiveColor"/>).</summary>
+    public string? Color { get; set; }
 }
 
 /// <summary>Machine-readable import problems. The UI turns them into Persian text (same idea as DatabaseErrorKind).</summary>
