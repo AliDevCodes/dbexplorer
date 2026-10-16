@@ -49,6 +49,7 @@ public partial class App : System.Windows.Application
             var builder = Host.CreateApplicationBuilder();
             builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
             builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
+            builder.Services.AddSingleton<ICredentialVault>(_ => new DpapiCredentialVault());
             builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
             builder.Services.AddSingleton<IMapSettingsStore>(_ => new JsonMapSettingsStore());
             builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();

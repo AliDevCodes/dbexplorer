@@ -12,7 +12,10 @@ public sealed record ConnectionSettings(
     string? Password,
     bool TrustServerCertificate);
 
-/// <summary>A remembered connection. It deliberately has no password field.</summary>
+/// <summary>
+/// A remembered connection. It has no password field: <see cref="RememberPassword"/> only says whether the
+/// encrypted credential vault (ICredentialVault) may keep the SQL password for this profile. Off by default.
+/// </summary>
 public sealed record SavedConnection
 {
     public SavedConnection() { }
@@ -23,7 +26,8 @@ public sealed record SavedConnection
         string? UserName,
         string Name = "",
         bool TrustServerCertificate = true,
-        Guid Id = default)
+        Guid Id = default,
+        bool RememberPassword = false)
     {
         this.Server = Server;
         this.Authentication = Authentication;
@@ -31,6 +35,7 @@ public sealed record SavedConnection
         this.Name = Name;
         this.TrustServerCertificate = TrustServerCertificate;
         this.Id = Id;
+        this.RememberPassword = RememberPassword;
     }
 
     public string Server { get; init; } = "";
@@ -39,6 +44,7 @@ public sealed record SavedConnection
     public string Name { get; init; } = "";
     public bool TrustServerCertificate { get; init; } = true;
     public Guid Id { get; init; }
+    public bool RememberPassword { get; init; }
 
     public void Deconstruct(out string Server, out AuthenticationMode Authentication, out string? UserName)
     {

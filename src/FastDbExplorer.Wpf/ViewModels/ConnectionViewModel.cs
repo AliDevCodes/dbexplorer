@@ -7,17 +7,22 @@ using FastDbExplorer.Wpf.Localization;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
-/// <summary>Named profile management and connection creation; SQL passwords are requested transiently at connect time.</summary>
+/// <summary>
+/// Named profile management and connection creation. SQL passwords are requested at connect time and kept in memory,
+/// unless the profile opted in to the encrypted credential vault (RememberPassword, off by default).
+/// </summary>
 public sealed partial class ConnectionViewModel : ObservableObject
 {
     private readonly IDatabaseMetadataService _metadata;
     private readonly IConnectionProfileStore _store;
+    private readonly ICredentialVault _vault;
     private CancellationTokenSource? _connectCts;
 
-    public ConnectionViewModel(IDatabaseMetadataService metadata, IConnectionProfileStore store)
+    public ConnectionViewModel(IDatabaseMetadataService metadata, IConnectionProfileStore store, ICredentialVault vault)
     {
         _metadata = metadata;
         _store = store;
+        _vault = vault;
     }
 
     public event Action<ConnectionSettings, IReadOnlyList<DatabaseInfo>, SavedConnection>? Connected;
@@ -54,6 +59,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
     private bool _isBusy;
 
     [ObservableProperty] private bool _trustServerCertificate = true;
+    [ObservableProperty] private bool _rememberPassword;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasErrorMessage))]
     private string _errorMessage = "";
@@ -90,6 +96,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
         UseSqlAuth = false;
         UserName = "";
         TrustServerCertificate = true;
+        RememberPassword = false;
         ErrorMessage = "";
         StatusMessage = "";
     }
@@ -104,6 +111,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
         try
         {
             await _store.RemoveAsync(profile);
+            await ForgetStoredPasswordAsync(profile.Id);
             Profiles.Remove(profile);
             ProfileDeleted?.Invoke(profile);
             NewProfile();
@@ -141,24 +149,34 @@ public sealed partial class ConnectionViewModel : ObservableObject
         IsBusy = true;
         ErrorMessage = "";
         StatusMessage = Strings.Connecting;
+        var usedStoredPassword = false;
         try
         {
             string? password = null;
             if (saved.Authentication == AuthenticationMode.SqlServer)
             {
-                if (SqlPasswordPrompt is null)
+                if (saved.RememberPassword)
                 {
-                    ErrorMessage = ShellStrings.PasswordPromptUnavailable;
-                    StatusMessage = "";
-                    return false;
+                    password = await ReadStoredPasswordAsync(saved.Id, cts.Token);
+                    usedStoredPassword = password is not null;
                 }
 
-                password = await SqlPasswordPrompt(saved);
-                cts.Token.ThrowIfCancellationRequested();
                 if (password is null)
                 {
-                    StatusMessage = Strings.Cancelled;
-                    return false;
+                    if (SqlPasswordPrompt is null)
+                    {
+                        ErrorMessage = ShellStrings.PasswordPromptUnavailable;
+                        StatusMessage = "";
+                        return false;
+                    }
+
+                    password = await SqlPasswordPrompt(saved);
+                    cts.Token.ThrowIfCancellationRequested();
+                    if (password is null)
+                    {
+                        StatusMessage = Strings.Cancelled;
+                        return false;
+                    }
                 }
             }
 
@@ -170,6 +188,11 @@ public sealed partial class ConnectionViewModel : ObservableObject
                 saved.TrustServerCertificate);
             var databases = await _metadata.GetDatabasesAsync(settings, cts.Token);
             cts.Token.ThrowIfCancellationRequested();
+
+            // Keep a typed password only after the server accepted it.
+            if (saved.RememberPassword && password is not null && !usedStoredPassword)
+                await StorePasswordAsync(saved.Id, password);
+
             StatusMessage = Strings.TestOk;
             Connected?.Invoke(settings, databases, saved);
             return true;
@@ -181,9 +204,13 @@ public sealed partial class ConnectionViewModel : ObservableObject
         }
         catch (DatabaseAccessException ex)
         {
+            var storedRejected = usedStoredPassword && ex.Kind == DatabaseErrorKind.LoginFailed;
+            if (storedRejected) await ForgetStoredPasswordAsync(saved.Id);
             if (_connectCts != cts) return false;
             StatusMessage = "";
-            ErrorMessage = Strings.Describe(ex);
+            ErrorMessage = storedRejected
+                ? $"{Strings.Describe(ex)} {CredentialStrings.StoredPasswordRejected}"
+                : Strings.Describe(ex);
             return false;
         }
         catch (Exception ex)
@@ -211,7 +238,8 @@ public sealed partial class ConnectionViewModel : ObservableObject
             return null;
         }
 
-        var profileId = SelectedProfile?.Id ?? Guid.NewGuid();
+        var previous = SelectedProfile;
+        var profileId = previous?.Id ?? Guid.NewGuid();
         if (Profiles.Any(item => item.Id != profileId
             && string.Equals(item.Name, ProfileName.Trim(), StringComparison.OrdinalIgnoreCase)))
         {
@@ -225,11 +253,17 @@ public sealed partial class ConnectionViewModel : ObservableObject
             UseSqlAuth ? UserName.Trim() : null,
             ProfileName.Trim(),
             TrustServerCertificate,
-            profileId);
+            profileId,
+            UseSqlAuth && RememberPassword);
 
         try
         {
             await _store.SaveAsync(profile);
+
+            // A stored password belongs to one server + account: drop it when the option is off or the target changed.
+            if (!profile.RememberPassword || IdentityChanged(previous, profile))
+                await ForgetStoredPasswordAsync(profile.Id);
+
             await LoadProfilesAsync(profile.Id);
             StatusMessage = ShellStrings.ProfileSaved;
             ErrorMessage = "";
@@ -240,6 +274,31 @@ public sealed partial class ConnectionViewModel : ObservableObject
             ErrorMessage = ex.Message;
             return null;
         }
+    }
+
+    private static bool IdentityChanged(SavedConnection? previous, SavedConnection current) =>
+        previous is not null
+        && (!string.Equals(previous.Server, current.Server, StringComparison.OrdinalIgnoreCase)
+            || previous.Authentication != current.Authentication
+            || !string.Equals(previous.UserName, current.UserName, StringComparison.OrdinalIgnoreCase));
+
+    private async Task<string?> ReadStoredPasswordAsync(Guid profileId, CancellationToken ct)
+    {
+        try { return await _vault.GetPasswordAsync(profileId, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception) { return null; } // an unreadable vault only means "ask again"
+    }
+
+    private async Task StorePasswordAsync(Guid profileId, string password)
+    {
+        try { await _vault.SavePasswordAsync(profileId, password); }
+        catch (Exception) { /* connecting still works; the password is simply asked again next time */ }
+    }
+
+    private async Task ForgetStoredPasswordAsync(Guid profileId)
+    {
+        try { await _vault.RemoveAsync(profileId); }
+        catch (Exception) { /* nothing sensitive can be left behind by a failed delete of an already unreadable entry */ }
     }
 
     private async Task LoadProfilesAsync(Guid? selectId = null)
@@ -263,6 +322,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
         UseSqlAuth = value.Authentication == AuthenticationMode.SqlServer;
         UserName = value.UserName ?? "";
         TrustServerCertificate = value.TrustServerCertificate;
+        RememberPassword = value.RememberPassword;
         ErrorMessage = "";
         StatusMessage = "";
     }
