@@ -7,13 +7,15 @@
 // latitude and zoom (MapLibre projects the polygon to Web Mercator). Layers are cached here, so they are redrawn
 // when a different map file is opened and the map is rebuilt.
 //
-// Marker style: the host sends a colour (#RRGGBB) and, optionally, an icon as SVG path data (24x24 grid, even-odd).
-// With an icon the page draws a coloured disc with the white glyph (canvas + Path2D) and shows it as a symbol layer;
-// an invisible circle layer stays underneath so hover and click keep working. Without an icon: halo + dot as before.
-// A style change arrives as a normal "coordUpsert"; the layer is rebuilt when its colour/icon differs from what is drawn.
+// Marker style: the host sends a colour (#RRGGBB), optionally an icon as SVG path data (24x24 grid, even-odd), and a
+// shape: circle (Excel layers), pin ("my points") or diamond (Explorer/Monitoring results). With an icon the page draws the
+// shape in the colour with the white glyph (canvas + Path2D) and shows it as a symbol layer; an almost transparent circle
+// layer stays underneath so hover and click keep working. Without an icon: halo + dot as before.
+// A style change arrives as a normal "coordUpsert"; the layer is rebuilt when its colour/icon/shape differs from what is drawn.
 //
 // Interaction: hovering a point shows a tooltip with its name (and posts "pointHover" so the host can show it in the
-// status bar); clicking a point highlights it and posts "pointSelect"; clicking empty map clears the highlight.
+// status bar); clicking a point highlights it, posts "pointSelect" and fires a window event "coordselect" (used by
+// map-tools.js); clicking empty map clears the highlight ("coordselectclear").
 (function () {
   'use strict';
 
@@ -26,7 +28,7 @@
   const post = (m) => host && host.postMessage(m);
 
   const layers = new Map();      // layer id -> last "coordUpsert" message (name/visible kept up to date)
-  const drawn = new Map();       // layer id -> style signature (colour|iconPath) currently on the map
+  const drawn = new Map();       // layer id -> style signature (colour|iconPath|shape) currently on the map
   let cmap = null, ready = false, dark = true;
   let pendingFit = null;
   let selected = null;           // { layerId, pointId } of the highlighted point
@@ -140,34 +142,50 @@
       if (cmap.getLayer(lid(id, p))) cmap.setLayoutProperty(lid(id, p), 'visibility', visible ? 'visible' : 'none');
   }
 
-  // A round marker: coloured disc, white ring and the white glyph. 64 px drawn, shown at pixelRatio 2 (= 32 css px).
-  function makeMarker(color, pathData) {
-    const size = 64;
+  // A marker image: circle (default), pin (tip at the bottom), diamond or rounded square, in the colour, with a white ring
+  // and the white glyph. Drawn at 64 px width and shown at pixelRatio 2 (= 32 css px wide); the pin is 84 px high.
+  function makeMarker(color, pathData, shape) {
+    const W = 64, H = shape === 'pin' ? 84 : 64;
     const canvas = document.createElement('canvas');
-    canvas.width = size; canvas.height = size;
+    canvas.width = W; canvas.height = H;
     const g = canvas.getContext('2d');
+    const cx = W / 2, cy = shape === 'pin' ? 30 : 32;
+
     g.beginPath();
-    g.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+    if (shape === 'pin') {
+      g.moveTo(cx, 80);
+      g.bezierCurveTo(cx - 8, 66, cx - 25, 52, cx - 25, cy);
+      g.arc(cx, cy, 25, Math.PI, 0, false);
+      g.bezierCurveTo(cx + 25, 52, cx + 8, 66, cx, 80);
+      g.closePath();
+    } else if (shape === 'diamond') {
+      g.save(); g.translate(cx, cy); g.rotate(Math.PI / 4); g.roundRect(-19, -19, 38, 38, 8); g.restore();
+    } else if (shape === 'square') {
+      g.roundRect(cx - 24, cy - 24, 48, 48, 12);
+    } else {
+      g.arc(cx, cy, W / 2 - 4, 0, Math.PI * 2);
+    }
     g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
     g.fillStyle = color; g.fill();
     g.shadowColor = 'transparent';
     g.lineWidth = 3; g.strokeStyle = '#FFFFFF'; g.stroke();
-    const glyph = 30, scale = glyph / 24, offset = (size - glyph) / 2;
+
+    const glyph = shape === 'pin' ? 26 : (shape === 'diamond' ? 22 : 30), scale = glyph / 24;
     g.save();
-    g.translate(offset, offset);
+    g.translate(cx - glyph / 2, cy - glyph / 2);
     g.scale(scale, scale);
     g.fillStyle = '#FFFFFF';
     g.fill(new Path2D(pathData), 'evenodd');
     g.restore();
-    return g.getImageData(0, 0, size, size);
+    return g.getImageData(0, 0, W, H);
   }
 
   function draw(l) {
     if (!cmap || !ready) return;
     const pointsId = sid(l.id, 'points'), circlesId = sid(l.id, 'circles');
-    const style = (l.color || '') + '|' + (l.iconPath || '');
+    const style = (l.color || '') + '|' + (l.iconPath || '') + '|' + (l.shape || '');
 
-    // Colour or icon changed: rebuild this layer's map layers (the source data is replaced below anyway).
+    // Colour, icon or shape changed: rebuild this layer's map layers (the source data is replaced below anyway).
     if (cmap.getSource(pointsId) && drawn.get(l.id) !== style) remove(l.id);
 
     if (cmap.getSource(pointsId)) {
@@ -175,9 +193,10 @@
       cmap.getSource(circlesId).setData(l.circles);
     } else {
       const c = l.color || colorOf(l.id);
+      const pin = l.shape === 'pin';
       let marker = null;
       if (l.iconPath) {
-        try { marker = makeMarker(c, l.iconPath); } catch (_) { marker = null; } // a bad glyph falls back to the dot
+        try { marker = makeMarker(c, l.iconPath, l.shape || 'circle'); } catch (_) { marker = null; } // a bad glyph falls back to the dot
       }
 
       cmap.addSource(circlesId, { type: 'geojson', data: l.circles });
@@ -193,11 +212,11 @@
         const name = imgName(l.id);
         if (cmap.hasImage(name)) cmap.removeImage(name);
         cmap.addImage(name, marker, { pixelRatio: 2 });
-        // Invisible hit target (hover/click query the 'dot' layer); the icon is what the user sees.
+        // Invisible hit target (hover/click query the 'dot' layer); the icon is what the user sees. A pin's head sits above its tip.
         cmap.addLayer({ id: lid(l.id, 'dot'), type: 'circle', source: pointsId,
-          paint: { 'circle-radius': 13, 'circle-color': c, 'circle-opacity': 0.01 } });
+          paint: { 'circle-radius': pin ? 15 : 13, 'circle-color': c, 'circle-opacity': 0.01, 'circle-translate': pin ? [0, -18] : [0, 0] } });
         cmap.addLayer({ id: lid(l.id, 'icon'), type: 'symbol', source: pointsId,
-          layout: { 'icon-image': name, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+          layout: { 'icon-image': name, 'icon-anchor': pin ? 'bottom' : 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
                     'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.6, 10, 0.85, 16, 1.1] } });
       } else {
         // Point marker: soft halo + solid dot with a white ring, growing a little with the zoom.
@@ -211,7 +230,7 @@
 
       cmap.addLayer({ id: lid(l.id, 'label'), type: 'symbol', source: pointsId, minzoom: 8,
         layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12, 'text-anchor': 'top',
-                  'text-offset': [0, marker ? 1.9 : 1.2], 'text-optional': true },
+                  'text-offset': [0, pin ? 0.5 : (marker ? 1.9 : 1.2)], 'text-optional': true },
         paint: { 'text-color': dark ? '#E8ECF8' : '#1B2033', 'text-halo-color': dark ? '#0E1220' : '#FFFFFF', 'text-halo-width': 1.8 } });
       drawn.set(l.id, style);
     }
@@ -239,9 +258,11 @@
 
   // ---- selection highlight ----------------------------------------------------------------------------------------
 
-  function drawSelection(coordinates) {
+  // A pin's head is drawn above the point itself, so the highlight ring is lifted to the head for pins.
+  function drawSelection(coordinates, shape) {
     const data = { type: 'FeatureCollection',
       features: [{ type: 'Feature', geometry: { type: 'Point', coordinates }, properties: {} }] };
+    const shift = shape === 'pin' ? [0, -18] : [0, 0];
     if (cmap.getSource(SEL_SRC)) {
       cmap.getSource(SEL_SRC).setData(data);
     } else {
@@ -252,6 +273,8 @@
         paint: { 'circle-radius': 10, 'circle-color': accent(), 'circle-opacity': 0,
                  'circle-stroke-color': accent(), 'circle-stroke-width': 3 } });
     }
+    cmap.setPaintProperty(SEL_HALO, 'circle-translate', shift);
+    cmap.setPaintProperty(SEL_RING, 'circle-translate', shift);
     raiseSelection();
   }
 
@@ -272,8 +295,11 @@
     if (!l || !f) return;
     selected = { layerId, pointId };
     const [lng, lat] = f.geometry.coordinates;
-    drawSelection([lng, lat]);
+    drawSelection([lng, lat], l.shape);
     post({ type: 'pointSelect', selected: true, name: f.properties.name, layer: l.name, lat, lng });
+    window.dispatchEvent(new CustomEvent('coordselect', {
+      detail: { layerId, pointId, name: f.properties.name, layerName: l.name, kind: l.kind || 'excel', lat, lng }
+    }));
   }
 
   function clearSelection(notify) {
@@ -281,6 +307,7 @@
     selected = null;
     if (cmap && ready && cmap.getSource(SEL_SRC)) cmap.getSource(SEL_SRC).setData(empty());
     if (notify && had) post({ type: 'pointSelect', selected: false });
+    if (had) window.dispatchEvent(new CustomEvent('coordselectclear'));
   }
 
   // After a layer was redrawn: keep the highlight only while its point still exists (and follow it if it moved).
@@ -288,7 +315,7 @@
     if (!selected || selected.layerId !== l.id) return;
     const f = findPoint(l.id, selected.pointId);
     if (!f || !l.visible) clearSelection(true);
-    else drawSelection(f.geometry.coordinates);
+    else drawSelection(f.geometry.coordinates, l.shape);
   }
 
   // ---- hover / click ----------------------------------------------------------------------------------------------
