@@ -1,6 +1,35 @@
-# Changelog
+﻿# Changelog
 Format: newest first. Dates are ISO. Everything below is unverified by a build until the owner confirms (see `CURRENT_STATE.md`).
 
+## [Unreleased] — 2026-10-16 — Detachable map window and categorized marker icons (branch `feature/saved-connection-credentials`)
+### Added
+- "باز کردن در پنجره جدا" button on the map toolbar: the map opens in its own `MapWindow` (for a second monitor). It shares the same `MapViewModel` (layers, file, camera); the Map section shows a note with "بازگرداندن به برنامه" while it is detached. The WebView is collapsed in the section while detached (native window, no WPF layering).
+- Marker icon library grouped in 11 folders (عمومی، درمانی، آموزشی، مذهبی، حمل‌ونقل، دولتی، امنیتی و نظامی، انرژی و صنعت، طبیعت و زیرساخت، تجاری و خدمات، فرهنگی و تفریحی): 56 icons, up from 24. Icons drawn in-house as SVG path data, as before.
+- `MapMarkerCategory` in the domain catalog; `MapMarkerCategoryTests.cs` (every icon in exactly one folder, the 24 earlier keys still exist, at least 50 icons).
+
+### Changed
+- The layer's icon picker is one button that shows the current icon; the folders and their icons open in a popup (no longer a long flat grid in the side panel).
+
+### Not verified
+Not compiled or run: the build machine for this change had no .NET SDK. XAML bindings (`IsPoppedOut`, `ToggleWindowCommand`, `IconCategories`, `DisplayIconShape`) and the new icon paths still need an owner build and a visual check of the icon sheet.
+
+## [Unreleased] — 2026-10-06 — Navigation shell and UI overhaul (branch `feature/nav-shell`)
+### Added
+- Persistent navigation rail (Home, Explorer, Map, Monitoring) with Ctrl+1..4; sections keep their state, no Back buttons.
+- Shared top bar: connection status, active-database picker, disconnect, search button.
+- Home dashboard when connected (connection summary, section tiles, latest alerts); connect form is the Home page when disconnected; Explorer/Monitoring show a "connect first" invitation.
+- Unread-alert badge on the Monitoring item.
+- Ctrl+K palette (`CommandPaletteWindow`): sections, tables of the active database, monitors, disconnect.
+- `ShellStrings.cs`, `NavItemViewModel`, `HomeViewModel`, `ConnectPromptViewModel`, `CommandPaletteViewModel`, `HomeView`, `ConnectPromptView`.
+
+### Changed
+- `MainViewModel` is now the shell (sections instead of one swapped `CurrentView`); `MainWindow.xaml` hosts rail + top bar.
+- Explorer sidebar 340 -> 300 px, tables only (database picker moved to the top bar).
+- Connect screen: brand text describes the whole app; map entry card removed (map is in the rail); tagline updated.
+- Map/Monitoring "Back" buttons removed (script step).
+
+### Not included
+Map layers in the Ctrl+K palette; Ctrl+1..4/Ctrl+K do not fire while the WebView2 map has keyboard focus. See `docs/NAV_REDESIGN.md`.
 ## [Unreleased] — 2026-10-06 — Start-up splash screen (branch `feature/monitoring-alerts`)
 ### Added
 - `Views/SplashWindow.xaml(.cs)`: borderless, transparent, rounded 760x460 window (fixed dark design): radial glow, faint contour lines, three expanding ripples, database logo with shadow, name + Persian tagline, progress bar with shimmer, status line `text  n / 3`, footer (read-only note + version from the assembly).

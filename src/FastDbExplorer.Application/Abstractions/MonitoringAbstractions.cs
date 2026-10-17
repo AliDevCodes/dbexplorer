@@ -23,6 +23,13 @@ public interface IReportWriter
         IReadOnlyList<object?[]> rows, string folder, CancellationToken ct);
 }
 
+/// <summary>Streams every row of a read-only query result into a user-selected Excel workbook.</summary>
+public interface IQueryReportWriter
+{
+    Task WriteQueryAsync(
+        IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct);
+}
+
 /// <summary>Runs one check of one monitor: finds new records that match the conditions and writes the report.</summary>
 public interface IMonitorCheckService
 {

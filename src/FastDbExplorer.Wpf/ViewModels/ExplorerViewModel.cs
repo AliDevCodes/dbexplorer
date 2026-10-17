@@ -6,20 +6,27 @@ using CommunityToolkit.Mvvm.Input;
 using FastDbExplorer.Application.Abstractions;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.Services;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
 public sealed partial class ExplorerViewModel : ObservableObject
 {
     private readonly IDatabaseMetadataService _metadata;
+    private readonly IFileDialogService _dialogs;
+    private readonly IQueryReportWriter _queryReportWriter;
     private readonly ConnectionSettings _settings;
     private readonly ObservableCollection<TableInfo> _tables = [];
     private CancellationTokenSource? _loadCts;
 
-    public ExplorerViewModel(IDatabaseMetadataService metadata, ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases)
+    public ExplorerViewModel(
+        IDatabaseMetadataService metadata, ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases,
+        IFileDialogService dialogs, IQueryReportWriter queryReportWriter)
     {
         _metadata = metadata;
         _settings = settings;
+        _dialogs = dialogs;
+        _queryReportWriter = queryReportWriter;
         Databases = new ObservableCollection<DatabaseInfo>(databases);
         Tables = CollectionViewSource.GetDefaultView(_tables);
         Tables.Filter = MatchesFilter;
@@ -29,6 +36,7 @@ public sealed partial class ExplorerViewModel : ObservableObject
     public event Action? Disconnected;
     public event Action? OpenMapRequested;
     public event Action? OpenMonitoringRequested;
+    public event Action<string, IReadOnlyList<QueryMapPoint>>? ShowSelectedRowsOnMapRequested;
 
     public string ServerName => _settings.Server;
     public ObservableCollection<DatabaseInfo> Databases { get; }
@@ -48,7 +56,8 @@ public sealed partial class ExplorerViewModel : ObservableObject
     {
         Query?.Shutdown(); // cancels any running query of the previous table
         if (value is null || SelectedDatabase is null) { Query = null; return; }
-        var query = new TableQueryViewModel(_metadata, _settings, SelectedDatabase.Name, value);
+        var query = new TableQueryViewModel(_metadata, _settings, SelectedDatabase.Name, value, _dialogs, _queryReportWriter);
+        query.ShowSelectedRowsOnMapRequested += (name, points) => ShowSelectedRowsOnMapRequested?.Invoke(name, points);
         Query = query;
         _ = query.InitializeAsync();
     }
@@ -71,8 +80,14 @@ public sealed partial class ExplorerViewModel : ObservableObject
     [RelayCommand]
     private void Disconnect()
     {
-        Query?.Shutdown();
+        Shutdown();
         Disconnected?.Invoke();
+    }
+
+    public void Shutdown()
+    {
+        _loadCts?.Cancel();
+        Query?.Shutdown();
     }
 
     private bool MatchesFilter(object item) =>

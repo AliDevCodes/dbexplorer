@@ -94,13 +94,51 @@ public class MonitoringTests
     }
 
     [Fact]
+    public async Task Query_xlsx_writer_streams_async_rows_to_the_selected_path()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "fdbx-" + Guid.NewGuid().ToString("N"), "query.xlsx");
+        try
+        {
+            static async IAsyncEnumerable<object?[]> Rows()
+            {
+                yield return [1, "first"];
+                await Task.Yield();
+                yield return [2, "long & <value>"];
+            }
+
+            await new XlsxReportWriter().WriteQueryAsync(["Id", "Value"], Rows(), path, CancellationToken.None);
+
+            Assert.True(File.Exists(path));
+            using var zip = ZipFile.OpenRead(path);
+            XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            using var sheet = zip.GetEntry("xl/worksheets/sheet1.xml")!.Open();
+            var cells = XDocument.Load(sheet).Descendants(ns + "c").ToList();
+            Assert.Contains(cells, c => (string?)c.Attribute("r") == "A2" && c.Value == "1");
+            Assert.Contains(cells, c => (string?)c.Attribute("r") == "B3" && c.Value == "long & <value>");
+        }
+        finally
+        {
+            var directory = Path.GetDirectoryName(path)!;
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Store_round_trips_a_monitor()
     {
         var path = Path.Combine(Path.GetTempPath(), "fdbx-" + Guid.NewGuid().ToString("N"), "monitors.json");
         try
         {
             var store = new JsonMonitorStore(path);
-            var original = Monitor("42", new DateTime(2026, 10, 5, 8, 0, 0, DateTimeKind.Utc), 120) with { SettleSeconds = 45 };
+            var layerId = Guid.NewGuid();
+            var original = Monitor("42", new DateTime(2026, 10, 5, 8, 0, 0, DateTimeKind.Utc), 120) with
+            {
+                SettleSeconds = 45,
+                CoordinateLayerId = layerId,
+                LatitudeColumn = "Lat",
+                LongitudeColumn = "Lon",
+                DistanceMeters = 20_000
+            };
             await store.SaveAsync([original]);
 
             var loaded = (await store.LoadAsync()).Single();
@@ -110,6 +148,10 @@ public class MonitoringTests
             Assert.Equal("42", loaded.LastWatermark);
             Assert.Equal(FilterOperator.EqualTo, loaded.Conditions.Single().Operator);
             Assert.Equal(FilterLogic.And, loaded.Logic);
+            Assert.Equal(layerId, loaded.CoordinateLayerId);
+            Assert.Equal("Lat", loaded.LatitudeColumn);
+            Assert.Equal("Lon", loaded.LongitudeColumn);
+            Assert.Equal(20_000d, loaded.DistanceMeters);
             Assert.DoesNotContain("password", await File.ReadAllTextAsync(path), StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -120,10 +162,45 @@ public class MonitoringTests
     }
 
     [Fact]
+    public async Task Monitor_files_without_proximity_fields_load_with_the_rule_disabled()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "fdbx-" + Guid.NewGuid().ToString("N"), "monitors.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path,
+                "{\"Version\":1,\"Monitors\":[{\"Id\":\"11111111-1111-1111-1111-111111111111\",\"Name\":\"legacy\",\"Server\":\"srv\",\"Database\":\"db\",\"Schema\":\"dbo\",\"Table\":\"T\",\"WatermarkColumn\":\"Id\",\"Conditions\":[],\"Logic\":\"And\",\"IntervalMinutes\":60,\"OutputFolder\":\"C:/reports\",\"PlaySound\":false,\"Enabled\":true}]} ");
+
+            var loaded = Assert.Single(await new JsonMonitorStore(path).LoadAsync());
+
+            Assert.False(loaded.HasProximityRule);
+            Assert.Null(loaded.CoordinateLayerId);
+            Assert.Null(loaded.LatitudeColumn);
+            Assert.Null(loaded.LongitudeColumn);
+            Assert.Null(loaded.DistanceMeters);
+        }
+        finally
+        {
+            var dir = Path.GetDirectoryName(path)!;
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Haversine_proximity_includes_inside_and_exact_boundary_but_excludes_outside()
+    {
+        var boundary = MonitorProximity.HaversineMeters(0, 0, 0, 0.1);
+
+        Assert.True(MonitorProximity.IsWithinDistance(0, 0, 0, 0.1, boundary + 0.01));
+        Assert.True(MonitorProximity.IsWithinDistance(0, 0, 0, 0.1, boundary));
+        Assert.False(MonitorProximity.IsWithinDistance(0, 0, 0, 0.1, boundary - 0.01));
+    }
+
+    [Fact]
     public async Task First_check_only_records_the_starting_point()
     {
         var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], [], false, null));
-        var service = new MonitorCheckService(metadata, new FakeWatermark("500"), new FakeReports());
+        var service = new MonitorCheckService(metadata, new FakeWatermark("500"), new FakeReports(), new FakeLayers());
 
         var result = await service.CheckAsync(Settings, Monitor(), CancellationToken.None);
 
@@ -139,7 +216,7 @@ public class MonitoringTests
         var rows = new List<object?[]> { new object?[] { 11, "A" }, new object?[] { 12, "A" } };
         var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], rows, false, null));
         var reports = new FakeReports();
-        var service = new MonitorCheckService(metadata, new FakeWatermark("12"), reports);
+        var service = new MonitorCheckService(metadata, new FakeWatermark("12"), reports, new FakeLayers());
 
         var result = await service.CheckAsync(Settings, Monitor("10", DateTime.UtcNow.AddHours(-2)), CancellationToken.None);
 
@@ -161,7 +238,7 @@ public class MonitoringTests
     {
         var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], [], false, null));
         var reports = new FakeReports();
-        var service = new MonitorCheckService(metadata, new FakeWatermark("10"), reports);
+        var service = new MonitorCheckService(metadata, new FakeWatermark("10"), reports, new FakeLayers());
 
         var result = await service.CheckAsync(Settings, Monitor("10", DateTime.UtcNow.AddHours(-2)), CancellationToken.None);
 
@@ -173,17 +250,51 @@ public class MonitoringTests
     }
 
     [Fact]
-    public async Task Reaching_the_row_cap_stops_early_and_continues_after_the_last_seen_row()
+    public async Task Reaching_the_row_cap_stops_at_the_next_watermark_group()
     {
-        var rows = Enumerable.Range(1, MonitorCheckService.PageSize).Select(i => new object?[] { i, "A" }).ToList();
-        var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], rows, true, null));
-        var service = new MonitorCheckService(metadata, new FakeWatermark("999999"), new FakeReports());
+        var metadata = new FakeMetadata(Columns, request =>
+        {
+            var rows = Enumerable.Range(0, MonitorCheckService.PageSize)
+                .Select(i => new object?[] { (int)request.Offset + i + 1, "A" }).ToList();
+            return new PageResult(["Id", "Place"], rows, true, null);
+        });
+        var service = new MonitorCheckService(metadata, new FakeWatermark("999999"), new FakeReports(), new FakeLayers());
 
         var result = await service.CheckAsync(Settings, Monitor("0", DateTime.UtcNow.AddHours(-1)), CancellationToken.None);
 
         Assert.True(result.Truncated);
-        Assert.Equal(MonitorCheckService.MaxRows / MonitorCheckService.PageSize, metadata.PageCalls);
-        Assert.Equal(MonitorCheckService.PageSize.ToString(), result.NewWatermark); // Id of the last row we saw
+        Assert.Equal(MonitorCheckService.MaxRows / MonitorCheckService.PageSize + 1, metadata.PageCalls); // probe the next watermark group
+        Assert.Equal(MonitorCheckService.MaxRows.ToString(), result.NewWatermark);
+    }
+
+    [Fact]
+    public async Task Row_cap_refuses_to_advance_through_a_duplicate_watermark_group()
+    {
+        var watermark = new DateTime(2026, 10, 5, 8, 0, 0);
+        var columns = new[]
+        {
+            new ColumnInfo("Id", "int", 1),
+            new ColumnInfo("Place", "nvarchar", 0),
+            new ColumnInfo("Created", "datetime2", 0)
+        };
+        var metadata = new FakeMetadata(columns, request =>
+        {
+            var start = (int)request.Offset + 1;
+            var count = request.Offset < MonitorCheckService.MaxRows ? MonitorCheckService.PageSize : 1;
+            var rows = Enumerable.Range(start, count).Select(id => new object?[] { id, "A", watermark }).ToList();
+            return new PageResult(["Id", "Place", "Created"], rows, true, null);
+        });
+        var monitor = Monitor(WatermarkTypes.Format(watermark.AddDays(-1)), DateTime.UtcNow.AddHours(-1)) with
+        {
+            WatermarkColumn = "Created"
+        };
+        var service = new MonitorCheckService(metadata, new FakeWatermark(WatermarkTypes.Format(watermark)), new FakeReports(), new FakeLayers());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CheckAsync(Settings, monitor, CancellationToken.None));
+
+        Assert.True(error.Message.Contains("same watermark value", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(MonitorCheckService.MaxRows / MonitorCheckService.PageSize + 1, metadata.PageCalls);
     }
 
     [Fact]
@@ -191,7 +302,7 @@ public class MonitoringTests
     {
         var rows = new List<object?[]> { new object?[] { 1, "A" } };
         var metadata = new FakeMetadata(Columns, new PageResult(["Id", "Place"], rows, false, null));
-        var service = new MonitorCheckService(metadata, new FakeWatermark("5"), new FakeReports());
+        var service = new MonitorCheckService(metadata, new FakeWatermark("5"), new FakeReports(), new FakeLayers());
 
         // LastWatermark is null but a check already succeeded (LastCheckedUtc set): the table was empty back then.
         var result = await service.CheckAsync(Settings, Monitor(null, DateTime.UtcNow.AddHours(-1)), CancellationToken.None);
@@ -217,8 +328,131 @@ public class MonitoringTests
         Assert.Null(MonitorCheckService.SettleUpper(new WatermarkReading(null, now), "datetime2", 30));
     }
 
-    private sealed class FakeMetadata(IReadOnlyList<ColumnInfo> columns, PageResult page) : IDatabaseMetadataService
+    [Fact]
+    public async Task Proximity_rule_reports_only_inside_rows_with_nearest_layer_details()
     {
+        var layer = TestLayer();
+        var columns = CoordinateColumns();
+        var page = new PageResult(["Id", "Place", "Lat", "Lon"],
+            [[11, "A", 0d, 0.1d], [12, "A", 0d, 0.5d]], false, null);
+        var metadata = new FakeMetadata(columns, page);
+        var reports = new FakeReports();
+        var monitor = ProximityMonitor(layer.Id);
+        var service = new MonitorCheckService(metadata, new FakeWatermark("12"), reports, new FakeLayers(layer));
+
+        var result = await service.CheckAsync(Settings, monitor, CancellationToken.None);
+
+        Assert.Single(result.Rows);
+        Assert.Equal("Anchor", result.Rows[0][^3]);
+        Assert.Equal("Imported sites", result.Rows[0][^2]);
+        Assert.Equal(MonitorProximity.HaversineMeters(0, 0, 0, 0.1), result.Rows[0][^1]);
+        Assert.Equal(new[] { "Id", "Place", "Lat", "Lon", "Nearest point name", "Coordinate layer", "Distance (m)" }, result.Columns);
+        Assert.Equal(result.Columns, reports.Columns);
+        Assert.Equal("12", result.NewWatermark);
+        Assert.False(result.Truncated);
+    }
+
+    [Fact]
+    public async Task Missing_selected_layer_fails_the_check_instead_of_disabling_proximity()
+    {
+        var metadata = new FakeMetadata(CoordinateColumns(), new PageResult(["Id", "Place", "Lat", "Lon"], [], false, null));
+        var service = new MonitorCheckService(metadata, new FakeWatermark("12"), new FakeReports(), new FakeLayers());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CheckAsync(Settings, ProximityMonitor(Guid.NewGuid()), CancellationToken.None));
+
+        Assert.True(error.Message.Contains("missing or unreadable", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0, metadata.PageCalls);
+    }
+
+    [Fact]
+    public async Task Proximity_scan_pages_past_ten_thousand_nonmatching_candidates_before_the_match()
+    {
+        var layer = TestLayer();
+        var columns = CoordinateColumns();
+        var metadata = new FakeMetadata(columns, request =>
+        {
+            var rows = request.Offset < 10_000
+                ? Enumerable.Range(0, MonitorCheckService.PageSize)
+                    .Select(i => new object?[] { (int)request.Offset + i + 1, "A", 0d, 1d }).ToList()
+                : new List<object?[]> { new object?[] { 10_001, "A", 0d, 0d } };
+            return new PageResult(request.Columns, rows, request.Offset < 10_000, null);
+        });
+        var service = new MonitorCheckService(metadata, new FakeWatermark("10001"), new FakeReports(), new FakeLayers(layer));
+
+        var result = await service.CheckAsync(Settings, ProximityMonitor(layer.Id, "0"), CancellationToken.None);
+
+        Assert.Equal(11, metadata.PageCalls);
+        Assert.Single(result.Rows);
+        Assert.Equal(10_001, result.Rows[0][0]);
+        Assert.Equal("10001", result.NewWatermark);
+        Assert.False(result.Truncated);
+    }
+
+    [Fact]
+    public async Task Proximity_row_cap_advances_only_through_the_last_examined_matching_candidate()
+    {
+        var layer = TestLayer();
+        var metadata = new FakeMetadata(CoordinateColumns(), request =>
+        {
+            var rows = Enumerable.Range(0, MonitorCheckService.PageSize)
+                .Select(i => new object?[] { (int)request.Offset + i + 1, "A", 0d, 0d }).ToList();
+            return new PageResult(request.Columns, rows, true, null);
+        });
+        var service = new MonitorCheckService(metadata, new FakeWatermark("20000"), new FakeReports(), new FakeLayers(layer));
+
+        var result = await service.CheckAsync(Settings, ProximityMonitor(layer.Id, "0"), CancellationToken.None);
+
+        Assert.True(result.Truncated);
+        Assert.Equal(MonitorCheckService.MaxRows, result.Rows.Count);
+        Assert.Equal(11, metadata.PageCalls); // probe that the next candidate is past the capped watermark
+        Assert.Equal("10000", result.NewWatermark);
+    }
+
+    [Fact]
+    public async Task Invalid_database_coordinate_fails_the_check_clearly()
+    {
+        var layer = TestLayer();
+        var metadata = new FakeMetadata(CoordinateColumns(),
+            new PageResult(["Id", "Place", "Lat", "Lon"], [[11, "A", 91d, 0d]], false, null));
+        var service = new MonitorCheckService(metadata, new FakeWatermark("12"), new FakeReports(), new FakeLayers(layer));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CheckAsync(Settings, ProximityMonitor(layer.Id), CancellationToken.None));
+
+        Assert.True(error.Message.Contains("out-of-range latitude", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IReadOnlyList<ColumnInfo> CoordinateColumns() =>
+    [
+        new ColumnInfo("Id", "int", 1),
+        new ColumnInfo("Place", "nvarchar", 0),
+        new ColumnInfo("Lat", "float", 0),
+        new ColumnInfo("Lon", "float", 0)
+    ];
+
+    private static MapLayer TestLayer()
+    {
+        var id = Guid.NewGuid();
+        return new MapLayer(id, "Imported sites", "sites.xlsx",
+            [new MapPoint(Guid.NewGuid(), "Anchor", 0, 0, id)], visibility: false, radiusMeters: 0);
+    }
+
+    private static MonitorDefinition ProximityMonitor(Guid layerId, string? last = "10") =>
+        Monitor(last, DateTime.UtcNow.AddHours(-1)) with
+        {
+            CoordinateLayerId = layerId,
+            LatitudeColumn = "Lat",
+            LongitudeColumn = "Lon",
+            DistanceMeters = 20_000
+        };
+
+    private sealed class FakeMetadata(
+        IReadOnlyList<ColumnInfo> columns, PageResult? page = null, Func<PageRequest, PageResult>? pageFactory = null) : IDatabaseMetadataService
+    {
+        public FakeMetadata(IReadOnlyList<ColumnInfo> columns, Func<PageRequest, PageResult> pageFactory)
+            : this(columns, null, pageFactory) { }
+
         public int PageCalls { get; private set; }
         public PageRequest? LastRequest { get; private set; }
 
@@ -233,8 +467,18 @@ public class MonitoringTests
         {
             PageCalls++;
             LastRequest = request;
-            return Task.FromResult(page);
+            return Task.FromResult(pageFactory?.Invoke(request) ?? page!);
         }
+    }
+
+    private sealed class FakeLayers(params MapLayer[] layers) : ICoordinateLayerStore
+    {
+        public Task<IReadOnlyList<MapLayer>> LoadAllAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<MapLayer>>(layers);
+
+        public Task SaveAsync(MapLayer layer, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<bool> RemoveAsync(Guid layerId, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     private sealed class FakeWatermark(string? max, DateTime? serverNow = null) : IWatermarkReader
@@ -247,11 +491,13 @@ public class MonitoringTests
     {
         public int Calls { get; private set; }
         public int RowCount { get; private set; }
+        public IReadOnlyList<string> Columns { get; private set; } = [];
 
         public Task<string> WriteAsync(string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns, IReadOnlyList<object?[]> rows, string folder, CancellationToken ct)
         {
             Calls++;
             RowCount = rows.Count;
+            Columns = columns;
             return Task.FromResult("fake.xlsx");
         }
     }

@@ -11,25 +11,22 @@ using FastDbExplorer.Wpf.Services;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
-/// <summary>
-/// Create / edit one monitor. Everything is chosen dynamically from the real table: database, table, the column that
-/// identifies new records, and the condition columns (location, origin, destination ... whatever the table calls them).
-/// An existing monitor keeps its table and watermark column (changing them would invalidate its saved position).
-/// </summary>
 public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposable
 {
     private readonly IDatabaseMetadataService _metadata;
+    private readonly ICoordinateLayerStore _coordinateLayers;
     private readonly ConnectionSettings _settings;
     private readonly IFolderPickerService _folders;
     private readonly MonitorDefinition? _existing;
     private readonly CancellationTokenSource _lifetime = new();
-    private IReadOnlyList<ColumnInfo> _columns = [];
+    private IReadOnlyList<ColumnInfo> _columns = [];   // full column metadata (needed for datetime detection + dry-run)
 
     public MonitorEditorViewModel(
         IDatabaseMetadataService metadata, ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases,
-        IFolderPickerService folders, MonitorDefinition? existing)
+        IFolderPickerService folders, MonitorDefinition? existing, ICoordinateLayerStore coordinateLayers)
     {
         _metadata = metadata;
+        _coordinateLayers = coordinateLayers;
         _settings = settings;
         _folders = folders;
         _existing = existing;
@@ -45,15 +42,19 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
             _intervalText = existing.IntervalMinutes.ToString(CultureInfo.InvariantCulture);
             _outputFolder = existing.OutputFolder;
             _playSound = existing.PlaySound;
+            _useProximity = existing.HasProximityRule;
+            _selectedLatitudeColumn = existing.LatitudeColumn;
+            _selectedLongitudeColumn = existing.LongitudeColumn;
+            _distanceText = existing.DistanceMeters?.ToString("R", CultureInfo.InvariantCulture) ?? "20000";
         }
     }
 
     public event Action<MonitorDefinition>? Saved;
     public event Action? Cancelled;
 
-    public bool IsNew => _existing is null;
+    public bool IsNew      => _existing is null;
     public bool IsExisting => _existing is not null;
-    public string Title => IsNew ? MonitoringStrings.EditorTitleNew : MonitoringStrings.EditorTitleEdit;
+    public string Title      => IsNew ? MonitoringStrings.EditorTitleNew : MonitoringStrings.EditorTitleEdit;
     public string TargetText => _existing?.TargetText ?? "";
     public IReadOnlyList<string> Databases { get; }
     public ObservableCollection<FilterRowViewModel> Filters { get; } = [];
@@ -66,10 +67,15 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
     [ObservableProperty] private IReadOnlyList<string> _watermarkColumns = [];
     [ObservableProperty] private string? _selectedWatermark;
     [ObservableProperty] private IReadOnlyList<string> _filterableColumns = [];
+    [ObservableProperty] private IReadOnlyList<string> _coordinateColumns = [];
+    [ObservableProperty] private IReadOnlyList<MapLayer> _coordinateLayerOptions = [];
+    [ObservableProperty] private MapLayer? _selectedCoordinateLayer;
+    [ObservableProperty] private string? _selectedLatitudeColumn;
+    [ObservableProperty] private string? _selectedLongitudeColumn;
+    [ObservableProperty] private bool _useProximity;
+    [ObservableProperty] private string _distanceText = "20000";
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(MatchAll))]
-    private bool _useOr;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(MatchAll))] private bool _useOr;
 
     [ObservableProperty] private string _intervalText = "60";
     [ObservableProperty] private string _outputFolder = "";
@@ -77,61 +83,61 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
     [ObservableProperty] private string _errorMessage = "";
     [ObservableProperty] private bool _isLoading;
 
-    public bool MatchAll
-    {
-        get => !UseOr;
-        set => UseOr = !value;
-    }
+    public bool MatchAll { get => !UseOr; set => UseOr = !value; }
 
-    partial void OnSelectedDatabaseChanged(string? value)
-    {
-        if (IsNew) _ = LoadTablesAsync(value);
-    }
-
-    partial void OnSelectedTableChanged(TableInfo? value)
-    {
-        if (IsNew) _ = LoadColumnsAsync(value);
-    }
+    partial void OnSelectedDatabaseChanged(string? value) { if (IsNew) _ = LoadTablesAsync(value); }
+    partial void OnSelectedTableChanged(TableInfo? value) { if (IsNew) _ = LoadColumnsAsync(value); }
 
     public async Task InitializeAsync()
     {
-        if (_existing is null)
-        {
-            SelectedDatabase = Databases.FirstOrDefault(); // triggers the table list
-            return;
-        }
-
-        IsLoading = true;
         try
         {
-            _columns = await _metadata.GetColumnsAsync(_settings, _existing.Database, _existing.Schema, _existing.Table, _lifetime.Token);
+            try
+            {
+                CoordinateLayerOptions = (await _coordinateLayers.LoadAllAsync(_lifetime.Token)).ToList();
+                if (_existing?.CoordinateLayerId is { } layerId)
+                    SelectedCoordinateLayer = CoordinateLayerOptions.FirstOrDefault(layer => layer.Id == layerId);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { ErrorMessage = "خواندن لایه‌های مختصات ذخیره‌شده ممکن نشد: " + ex.Message; }
+
+            if (_existing is null)
+            {
+                SelectedDatabase = Databases.FirstOrDefault();
+                return;
+            }
+
+            IsLoading = true;
+            var existingColumns = await _metadata.GetColumnsAsync(
+                _settings, _existing.Database, _existing.Schema, _existing.Table, _lifetime.Token);
+            _columns = existingColumns;
             ApplyColumns();
+
             foreach (var c in _existing.Conditions)
-                Filters.Add(new FilterRowViewModel(c.Column)
-                {
-                    SelectedOperator = OperatorOption.All.First(o => o.Operator == c.Operator),
-                    Value = c.Value ?? "",
-                    Value2 = c.Value2 ?? ""
-                });
+            {
+                var row = MakeFilter(c.Column);
+                row.SelectedOperator = OperatorOption.All.First(o => o.Operator == c.Operator);
+                row.Value  = c.Value  ?? "";
+                row.Value2 = c.Value2 ?? "";
+                Filters.Add(row);
+            }
         }
         catch (OperationCanceledException) { }
         catch (DatabaseAccessException ex) { ErrorMessage = Strings.Describe(ex); }
-        catch (Exception ex) { ErrorMessage = ex.Message; } // UI boundary
+        catch (Exception ex) { ErrorMessage = ex.Message; }
         finally { IsLoading = false; }
     }
 
     private async Task LoadTablesAsync(string? database)
     {
-        Tables = [];
-        SelectedTable = null;
+        Tables = []; SelectedTable = null;
         if (database is null) return;
 
-        IsLoading = true;
-        ErrorMessage = "";
+        IsLoading = true; ErrorMessage = "";
         try
         {
             var list = await _metadata.GetTablesAsync(_settings, database, _lifetime.Token);
-            if (SelectedDatabase != database) return; // a newer selection superseded this one
+            if (SelectedDatabase != database) return;
             Tables = list.ToList();
         }
         catch (OperationCanceledException) { }
@@ -142,18 +148,15 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
 
     private async Task LoadColumnsAsync(TableInfo? table)
     {
-        _columns = [];
-        WatermarkColumns = [];
-        FilterableColumns = [];
-        SelectedWatermark = null;
-        Filters.Clear();
+        _columns = []; WatermarkColumns = []; FilterableColumns = [];
+        SelectedWatermark = null; Filters.Clear();
         if (table is null || SelectedDatabase is null) return;
 
-        IsLoading = true;
-        ErrorMessage = "";
+        IsLoading = true; ErrorMessage = "";
         try
         {
-            var columns = await _metadata.GetColumnsAsync(_settings, SelectedDatabase, table.Schema, table.Name, _lifetime.Token);
+            var columns = await _metadata.GetColumnsAsync(
+                _settings, SelectedDatabase, table.Schema, table.Name, _lifetime.Token);
             if (SelectedTable != table) return;
             _columns = columns;
             ApplyColumns();
@@ -168,18 +171,25 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
     {
         WatermarkColumns = _columns.Where(c => WatermarkTypes.IsSupported(c.TypeName)).Select(c => c.Name).ToList();
         FilterableColumns = _columns.Where(c => c.IsFilterable).Select(c => c.Name).ToList();
+        CoordinateColumns = _columns.Where(c => MonitorCoordinateTypes.IsSupported(c.TypeName)).Select(c => c.Name).ToList();
 
         if (IsNew)
         {
-            // A sensible default: the first primary-key column when it is a number / date. The user can change it.
             var key = _columns.Where(c => c.IsPrimaryKey).OrderBy(c => c.KeyOrdinal)
                 .FirstOrDefault(c => WatermarkTypes.IsSupported(c.TypeName));
             SelectedWatermark = key?.Name ?? WatermarkColumns.FirstOrDefault();
         }
     }
 
+    /// <summary>
+    /// Creates a new filter row pre-wired with the full column metadata so
+    /// <see cref="FilterRowViewModel.IsDateTimeField"/> works without a second lookup.
+    /// </summary>
+    private FilterRowViewModel MakeFilter(string? column) =>
+        new(column) { ColumnMeta = _columns };
+
     [RelayCommand]
-    private void AddFilter() => Filters.Add(new FilterRowViewModel(FilterableColumns.FirstOrDefault()));
+    private void AddFilter() => Filters.Add(MakeFilter(FilterableColumns.FirstOrDefault()));
 
     [RelayCommand]
     private void RemoveFilter(FilterRowViewModel row) => Filters.Remove(row);
@@ -191,8 +201,7 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         if (picked is not null) OutputFolder = picked;
     }
 
-    [RelayCommand]
-    private void Cancel() => Cancelled?.Invoke();
+    [RelayCommand] private void Cancel() => Cancelled?.Invoke();
 
     [RelayCommand]
     private void Save()
@@ -206,15 +215,15 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         if (_existing is not null)
         {
             database = _existing.Database;
-            schema = _existing.Schema;
-            table = _existing.Table;
+            schema   = _existing.Schema;
+            table    = _existing.Table;
         }
         else
         {
             if (SelectedDatabase is null || SelectedTable is null) { ErrorMessage = MonitoringStrings.ErrTarget; return; }
             database = SelectedDatabase;
-            schema = SelectedTable.Schema;
-            table = SelectedTable.Name;
+            schema   = SelectedTable.Schema;
+            table    = SelectedTable.Name;
         }
 
         var watermark = _existing?.WatermarkColumn ?? SelectedWatermark;
@@ -235,10 +244,9 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         foreach (var row in Filters)
         {
             var incomplete = row.Column is null
-                             || (row.NeedsValue && string.IsNullOrWhiteSpace(row.Value))
-                             || (row.NeedsSecondValue && string.IsNullOrWhiteSpace(row.Value2));
+                || (row.NeedsValue && string.IsNullOrWhiteSpace(row.Value))
+                || (row.NeedsSecondValue && string.IsNullOrWhiteSpace(row.Value2));
             if (incomplete) { ErrorMessage = Strings.ErrIncompleteFilter; return; }
-
             conditions.Add(new FilterCondition(
                 row.Column!, row.SelectedOperator.Operator,
                 row.NeedsValue ? row.Value : null,
@@ -247,23 +255,51 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
 
         var logic = UseOr ? FilterLogic.Or : FilterLogic.And;
 
-        // Dry run of the query builder: bad numbers / dates / operators are reported now, not at 3 a.m.
+        Guid? coordinateLayerId = null;
+        string? latitudeColumn = null;
+        string? longitudeColumn = null;
+        double? distanceMeters = null;
+        if (UseProximity)
+        {
+            if (SelectedCoordinateLayer is null || SelectedCoordinateLayer.Points.Count == 0)
+            { ErrorMessage = "یک لایه‌ی مختصات ذخیره‌شده و دارای نقطه انتخاب کنید؛ لایه‌ی حذف‌شده باید با لایه‌ی دیگری جایگزین شود."; return; }
+            if (SelectedLatitudeColumn is null || SelectedLongitudeColumn is null
+                || !CoordinateColumns.Contains(SelectedLatitudeColumn, StringComparer.Ordinal)
+                || !CoordinateColumns.Contains(SelectedLongitudeColumn, StringComparer.Ordinal)
+                || string.Equals(SelectedLatitudeColumn, SelectedLongitudeColumn, StringComparison.OrdinalIgnoreCase))
+            { ErrorMessage = "دو ستون جداگانه با مقادیر قابل‌خواندنِ عددی برای عرض و طول جغرافیایی انتخاب کنید."; return; }
+
+            var distanceText = DistanceText.Trim();
+            if (distanceText.EndsWith('m') || distanceText.EndsWith('M'))
+                distanceText = distanceText[..^1].Trim();
+            if (!double.TryParse(distanceText, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsedDistance)
+                || !double.IsFinite(parsedDistance) || parsedDistance <= 0 || parsedDistance > CoordinateRules.MaxRadiusMeters)
+            { ErrorMessage = $"فاصله باید عددی بزرگ‌تر از صفر و حداکثر {CoordinateRules.MaxRadiusMeters} متر باشد."; return; }
+
+            coordinateLayerId = SelectedCoordinateLayer.Id;
+            latitudeColumn = SelectedLatitudeColumn;
+            longitudeColumn = SelectedLongitudeColumn;
+            distanceMeters = parsedDistance;
+        }
+
         try
         {
             var probe = new PageRequest(database, schema, table, [watermark], conditions, logic, [watermark], false, 1, 0, null);
             SelectQueryBuilder.Build(probe, _columns);
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException or NotSupportedException)
-        {
-            ErrorMessage = Strings.ErrInvalidQuery + ex.Message;
-            return;
-        }
+        { ErrorMessage = Strings.ErrInvalidQuery + ex.Message; return; }
 
-        var sound = PlaySound;
+        var sound      = PlaySound;
         var definition = _existing is null
             ? new MonitorDefinition(Guid.NewGuid(), name, _settings.Server, database, schema, table, watermark,
-                conditions, logic, minutes, folder, sound, true)
-            : _existing with { Name = name, Conditions = conditions, Logic = logic, IntervalMinutes = minutes, OutputFolder = folder, PlaySound = sound };
+                conditions, logic, minutes, folder, sound, true,
+                CoordinateLayerId: coordinateLayerId, LatitudeColumn: latitudeColumn,
+                LongitudeColumn: longitudeColumn, DistanceMeters: distanceMeters)
+            : _existing with { Name = name, Conditions = conditions, Logic = logic,
+                               IntervalMinutes = minutes, OutputFolder = folder, PlaySound = sound,
+                               CoordinateLayerId = coordinateLayerId, LatitudeColumn = latitudeColumn,
+                               LongitudeColumn = longitudeColumn, DistanceMeters = distanceMeters };
 
         Saved?.Invoke(definition);
     }

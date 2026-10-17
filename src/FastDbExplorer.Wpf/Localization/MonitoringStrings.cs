@@ -22,6 +22,18 @@ public static class MonitoringStrings
     public const string OpenReport = "باز کردن گزارش";
     public const string ShowInFolder = "نمایش در پوشه";
     public const string Close = "بستن";
+    public const string ShowResults = "نمایش نتایج";
+    public const string ResultsTitle = "نتایج بررسی";
+    public const string LatitudeColumn = "ستون عرض جغرافیایی";
+    public const string LongitudeColumn = "ستون طول جغرافیایی";
+    public const string MapDetailsColumns = "جزئیات همراه هر نقطه روی نقشه (حداکثر ۸ ستون)";
+    public const string SendSelectedRowsToMap = "ارسال ردیف‌های انتخاب‌شده به نقشه";
+    public const string CloseResults = "بستن پیش‌نمایش";
+    public const string NullValue = "NULL";
+    public const string PreviewTruncated = "فقط ردیف‌های دریافت‌شده در این بررسی نمایش داده می‌شوند؛ ادامه در بررسی بعدی انجام می‌شود.";
+    public const string PreviewLimited = "برای کاهش مصرف حافظه، پیش‌نمایش محدود است؛ گزارش Excel شامل همه‌ی ردیف‌های این بررسی است.";
+    public const string MaxMapDetailColumnsReached = "حداکثر ۸ ستون جزئیات را می‌توانید برای نقشه انتخاب کنید.";
+    public const string NoValidSelectedCoordinates = "در ردیف‌های انتخاب‌شده مختصات معتبر WGS84 پیدا نشد.";
     public const string RunningNote = "بررسی‌ها فقط تا وقتی که برنامه باز و به سرور متصل است انجام می‌شوند. هیچ دستور تغییری روی پایگاه‌داده اجرا نمی‌شود.";
     public const string NeverChecked = "هنوز بررسی نشده";
     public const string FirstCheckNote = "در اولین بررسی فقط نقطه‌ی شروع ثبت می‌شود.";
@@ -67,6 +79,13 @@ public static class MonitoringStrings
         utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
     public static string Matched(int count) => $"{count:N0} رکورد مطابق شرط پیدا شد.";
+
+    public static string PreviewRowCount(int count) => $"{count:N0} ردیف؛ برای انتخاب چند ردیف از Ctrl استفاده کنید.";
+
+    public static string RowsSkippedForMap(int skipped, int sent) =>
+        $"{skipped:N0} ردیف به‌دلیل مختصات نامعتبر نادیده گرفته شد؛ {sent:N0} ردیف معتبر به نقشه ارسال شد.";
+
+    public static string RowsSentToMap(int count) => $"{count:N0} ردیف به نقشه ارسال شد.";
 
     public static string AlertSummary(int count, bool truncated) =>
         truncated

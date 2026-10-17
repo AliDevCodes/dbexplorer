@@ -16,8 +16,14 @@ public static class CoordinateRules
     public static bool IsValidRadiusMeters(double value) => double.IsFinite(value) && value is >= 0 and <= MaxRadiusMeters;
 }
 
-/// <summary>One imported point. <see cref="LayerId"/> ties it to its <see cref="MapLayer"/>.</summary>
-public sealed record MapPoint(Guid Id, string Name, double Latitude, double Longitude, Guid LayerId);
+/// <summary>One map point. <see cref="LayerId"/> ties it to its <see cref="MapLayer"/>.</summary>
+public sealed record MapPoint(
+    Guid Id,
+    string Name,
+    double Latitude,
+    double Longitude,
+    Guid LayerId,
+    IReadOnlyDictionary<string, string>? Details = null);
 
 /// <summary>
 /// A named set of points imported from one file. The constructor enforces the invariants
@@ -100,6 +106,12 @@ public sealed class MapLayer
             _radiusMeters = value;
         }
     }
+
+    /// <summary>Marker icon key from <see cref="MapMarkerCatalog"/>; null = the classic dot marker.</summary>
+    public string? IconKey { get; set; }
+
+    /// <summary>Marker colour as #RRGGBB; null = an automatic palette colour (see <see cref="MapMarkerCatalog.EffectiveColor"/>).</summary>
+    public string? Color { get; set; }
 }
 
 /// <summary>Machine-readable import problems. The UI turns them into Persian text (same idea as DatabaseErrorKind).</summary>

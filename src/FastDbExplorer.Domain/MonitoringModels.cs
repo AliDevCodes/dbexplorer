@@ -47,7 +47,11 @@ public sealed record MonitorDefinition(
     bool Enabled,
     string? LastWatermark = null,
     DateTime? LastCheckedUtc = null,
-    int SettleSeconds = 30)
+    int SettleSeconds = 30,
+    Guid? CoordinateLayerId = null,
+    string? LatitudeColumn = null,
+    string? LongitudeColumn = null,
+    double? DistanceMeters = null)
 {
     public const int MinIntervalMinutes = 1;
     public const int MaxIntervalMinutes = 1440;
@@ -55,9 +59,59 @@ public sealed record MonitorDefinition(
     [JsonIgnore]
     public string TargetText => $"{Database} · {Schema}.{Table}";
 
+    [JsonIgnore]
+    public bool HasProximityRule => CoordinateLayerId is not null || LatitudeColumn is not null
+                                    || LongitudeColumn is not null || DistanceMeters is not null;
+
     /// <summary>Copy of this monitor with the state of a finished check applied.</summary>
     public MonitorDefinition Apply(MonitorCheckResult result) =>
         this with { LastWatermark = result.NewWatermark ?? LastWatermark, LastCheckedUtc = result.CheckedAtUtc };
+}
+
+/// <summary>SQL types whose values can be read as numeric WGS84 latitude/longitude inputs by a monitor.</summary>
+public static class MonitorCoordinateTypes
+{
+    private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "char", "varchar", "nchar", "nvarchar", "bigint", "int", "smallint", "tinyint",
+        "decimal", "numeric", "money", "smallmoney", "float", "real"
+    };
+
+    public static bool IsSupported(string typeName) => Supported.Contains(typeName);
+}
+
+/// <summary>WGS84 great-circle distance calculations used by monitor proximity rules.</summary>
+public static class MonitorProximity
+{
+    private const double EarthMeanRadiusMeters = 6_371_008.8;
+
+    public static double HaversineMeters(double latitude1, double longitude1, double latitude2, double longitude2)
+    {
+        if (!CoordinateRules.IsValidLatitude(latitude1) || !CoordinateRules.IsValidLongitude(longitude1)
+            || !CoordinateRules.IsValidLatitude(latitude2) || !CoordinateRules.IsValidLongitude(longitude2))
+            throw new ArgumentOutOfRangeException(nameof(latitude1), "Coordinates must be finite WGS84 latitude/longitude values.");
+
+        var lat1 = DegreesToRadians(latitude1);
+        var lat2 = DegreesToRadians(latitude2);
+        var deltaLat = lat2 - lat1;
+        var deltaLon = DegreesToRadians(longitude2 - longitude1);
+        var sinLat = Math.Sin(deltaLat / 2);
+        var sinLon = Math.Sin(deltaLon / 2);
+        var a = sinLat * sinLat + Math.Cos(lat1) * Math.Cos(lat2) * sinLon * sinLon;
+        var centralAngle = 2 * Math.Atan2(Math.Sqrt(Math.Min(1, a)), Math.Sqrt(Math.Max(0, 1 - a)));
+        return EarthMeanRadiusMeters * centralAngle;
+    }
+
+    public static bool IsWithinDistance(double latitude1, double longitude1, double latitude2, double longitude2, double distanceMeters)
+    {
+        if (!double.IsFinite(distanceMeters) || distanceMeters <= 0 || distanceMeters > CoordinateRules.MaxRadiusMeters)
+            throw new ArgumentOutOfRangeException(nameof(distanceMeters), distanceMeters,
+                $"The monitor distance must be greater than 0 and at most {CoordinateRules.MaxRadiusMeters} metres.");
+
+        return HaversineMeters(latitude1, longitude1, latitude2, longitude2) <= distanceMeters;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * (Math.PI / 180);
 }
 
 /// <summary>Outcome of one check. <see cref="IsBaseline"/> = first run: only the starting point was recorded.</summary>

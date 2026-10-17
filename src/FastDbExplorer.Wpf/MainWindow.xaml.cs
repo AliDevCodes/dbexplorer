@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
 using FastDbExplorer.Wpf.Services;
 using FastDbExplorer.Wpf.ViewModels;
@@ -16,7 +18,11 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => UpdateMaximizeState();
         PreviewKeyDown += OnSectionShortcut;
         viewModel.PaletteRequested += OnPaletteRequested;
-        Loaded += async (_, _) => await viewModel.InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            UpdateMaximizeState();
+            await viewModel.InitializeAsync();
+        };
     }
 
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -26,7 +32,7 @@ public partial class MainWindow : Window
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();
 
-    /// <summary>Ctrl+K opens the search palette; Ctrl+1..Ctrl+4 jump to Home, Explorer, Map, Monitoring. (Not while the map has keyboard focus: WebView2 is a native window.)</summary>
+    /// <summary>Ctrl+K opens the search palette; Ctrl+1..Ctrl+5 jump through the navigation rail. (Not while the map has keyboard focus: WebView2 is a native window.)</summary>
     private void OnSectionShortcut(object sender, KeyEventArgs e)
     {
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
@@ -42,15 +48,40 @@ public partial class MainWindow : Window
         AppSection? section = e.Key switch
         {
             Key.D1 or Key.NumPad1 => AppSection.Home,
-            Key.D2 or Key.NumPad2 => AppSection.Explorer,
-            Key.D3 or Key.NumPad3 => AppSection.Map,
-            Key.D4 or Key.NumPad4 => AppSection.Monitoring,
+            Key.D2 or Key.NumPad2 => AppSection.Connections,
+            Key.D3 or Key.NumPad3 => AppSection.Explorer,
+            Key.D4 or Key.NumPad4 => AppSection.Map,
+            Key.D5 or Key.NumPad5 => AppSection.Monitoring,
             _ => null
         };
         if (section is null) return;
 
         viewModel.NavigateCommand.Execute(section.Value);
         e.Handled = true;
+    }
+
+    private async void OnActiveProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox combo || combo.SelectedItem is not SavedConnection profile
+            || DataContext is not MainViewModel viewModel || viewModel.ActiveProfile?.Id == profile.Id)
+            return;
+
+        var connected = await viewModel.SwitchProfileAsync(profile);
+        if (connected) return;
+
+        combo.SelectedItem = viewModel.ActiveProfile;
+
+        // No password popup: a profile without a usable stored password is completed in the Connections form.
+        if (viewModel.ConnectionManager.NeedsPasswordInput)
+        {
+            viewModel.NavigateCommand.Execute(AppSection.Connections);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(viewModel.ConnectionManager.ErrorMessage))
+            MessageBox.Show(this, viewModel.ConnectionManager.ErrorMessage, WindowStrings.AppName,
+                MessageBoxButton.OK, MessageBoxImage.Warning, MessageBoxResult.OK,
+                MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading);
     }
 
     private void OnPaletteRequested(CommandPaletteViewModel palette)

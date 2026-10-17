@@ -1,4 +1,5 @@
 using System.Data;
+using System.Collections.Concurrent;
 using FastDbExplorer.Application.Abstractions;
 using FastDbExplorer.Domain;
 using Microsoft.Data.SqlClient;
@@ -8,6 +9,8 @@ namespace FastDbExplorer.Infrastructure;
 public sealed class SqlServerMetadataService : IDatabaseMetadataService
 {
     private const int CommandTimeoutSeconds = 30;
+    private const string PagingCapabilitiesSql = "SELECT CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion')), CONVERT(int, DATABASEPROPERTYEX(DB_NAME(), 'CompatibilityLevel'))";
+    private readonly ConcurrentDictionary<string, PagingCapabilities> _pagingCapabilities = new(StringComparer.OrdinalIgnoreCase);
 
     // System databases (ids 1-4) are hidden: this tool is for user data.
     private const string DatabasesSql =
@@ -57,38 +60,150 @@ public sealed class SqlServerMetadataService : IDatabaseMetadataService
     public async Task<PageResult> GetPageAsync(ConnectionSettings settings, PageRequest request, CancellationToken ct)
     {
         var columns = await GetColumnsAsync(settings, request.Database, request.Schema, request.Table, ct);
-        var query = SelectQueryBuilder.Build(request, columns);
+        var cacheKey = PagingCapabilitiesCacheKey(settings, request.Database);
+        var capabilities = await GetPagingCapabilitiesAsync(settings, request.Database, ct);
         var pageSize = Math.Clamp(request.PageSize, 1, SelectQueryBuilder.MaxPageSize);
         var keyCount = request.UseKeyset ? request.OrderBy.Count : 0;
         var valueCount = request.Columns.Count;
 
-        return await ExecuteAsync(settings, request.Database, query.Sql, query.Parameters, async (reader, token) =>
+        async Task<PageResult> ExecutePageAsync(bool supportsOffsetFetch)
         {
-            var rows = new List<object?[]>();
-            object?[]? lastKey = null;
-            var hasMore = false;
-
-            while (await reader.ReadAsync(token))
+            var query = SelectQueryBuilder.Build(request, columns, supportsOffsetFetch);
+            return await ExecuteAsync(settings, request.Database, query.Sql, query.Parameters, async (reader, token) =>
             {
-                if (rows.Count == pageSize) { hasMore = true; break; } // the +1 row only proves a next page exists
+                var rows = new List<object?[]>();
+                object?[]? lastKey = null;
+                var hasMore = false;
 
-                var values = new object?[valueCount];
-                for (var i = 0; i < valueCount; i++)
+                while (await reader.ReadAsync(token))
                 {
-                    var v = reader.GetValue(i);
-                    values[i] = v is DBNull ? null : v;
-                }
-                rows.Add(values);
+                    if (rows.Count == pageSize) { hasMore = true; break; } // the +1 row only proves a next page exists
 
-                if (keyCount > 0)
-                {
-                    var key = new object?[keyCount];
-                    for (var k = 0; k < keyCount; k++) key[k] = reader.GetValue(valueCount + k);
-                    lastKey = key;
+                    var values = new object?[valueCount];
+                    for (var i = 0; i < valueCount; i++)
+                    {
+                        var v = reader.GetValue(i);
+                        values[i] = v is DBNull ? null : v;
+                    }
+                    rows.Add(values);
+
+                    if (keyCount > 0)
+                    {
+                        var key = new object?[keyCount];
+                        for (var k = 0; k < keyCount; k++) key[k] = reader.GetValue(valueCount + k);
+                        lastKey = key;
+                    }
                 }
+                return new PageResult(request.Columns, rows, hasMore, lastKey);
+            }, ct);
+        }
+
+        if (!capabilities.SupportsOffsetFetch)
+        {
+            if (!capabilities.SupportsRowNumber)
+                throw UnsupportedPaging(capabilities);
+            return await ExecuteLegacyPageAsync(capabilities);
+        }
+
+        try
+        {
+            return await ExecutePageAsync(true);
+        }
+        catch (DatabaseAccessException ex) when (IsOffsetFetchSyntaxError(ex))
+        {
+            _pagingCapabilities.TryRemove(cacheKey, out _);
+            PagingCapabilities refreshed;
+            try
+            {
+                refreshed = await GetPagingCapabilitiesAsync(settings, request.Database, ct);
             }
-            return new PageResult(request.Columns, rows, hasMore, lastKey);
-        }, ct);
+            catch (DatabaseAccessException diagnosticError)
+            {
+                throw new DatabaseAccessException(
+                    DatabaseErrorKind.PagingDetectionFailed,
+                    $"The server rejected OFFSET/FETCH: {ex.Message}{Environment.NewLine}Capability check failed: {diagnosticError.Message}",
+                    diagnosticError);
+            }
+
+            if (refreshed.SupportsRowNumber)
+            {
+                if (refreshed.SupportsOffsetFetch)
+                    refreshed = refreshed with { UseRowNumberFallback = true };
+                _pagingCapabilities[cacheKey] = refreshed;
+                return await ExecuteLegacyPageAsync(refreshed);
+            }
+            throw UnsupportedPaging(refreshed, ex.Message);
+        }
+
+        async Task<PageResult> ExecuteLegacyPageAsync(PagingCapabilities detected)
+        {
+            try
+            {
+                return await ExecutePageAsync(false);
+            }
+            catch (DatabaseAccessException ex)
+            {
+                throw new DatabaseAccessException(DatabaseErrorKind.PagingFallbackFailed,
+                    $"Detected SQL Server version {detected.ProductVersion} (major {detected.MajorVersion}) and compatibility level {detected.CompatibilityLevel}. The read-only ROW_NUMBER paging query failed: {ex.Message}", ex);
+            }
+        }
+    }
+
+    private async Task<PagingCapabilities> GetPagingCapabilitiesAsync(
+        ConnectionSettings settings, string database, CancellationToken ct)
+    {
+        var key = PagingCapabilitiesCacheKey(settings, database);
+        if (_pagingCapabilities.TryGetValue(key, out var cached)) return cached;
+
+        List<PagingProbe> rows;
+        try
+        {
+            rows = await QueryAsync(settings, database, PagingCapabilitiesSql, null,
+                r => new PagingProbe(r.IsDBNull(0) ? null : r.GetString(0),
+                    r.IsDBNull(1) ? null : Convert.ToInt32(r.GetValue(1))), ct);
+        }
+        catch (DatabaseAccessException ex)
+        {
+            throw new DatabaseAccessException(DatabaseErrorKind.PagingDetectionFailed,
+                $"Could not inspect SQL Server version and compatibility level using a read-only query. {ex.Message}", ex);
+        }
+
+        var probe = rows.SingleOrDefault();
+        if (probe is null
+            || probe.ProductVersion is null
+            || probe.CompatibilityLevel is not int compatibilityLevel
+            || !Version.TryParse(probe.ProductVersion, out var version))
+            throw new DatabaseAccessException(DatabaseErrorKind.PagingDetectionFailed,
+                "SQL Server did not return a valid product version and database compatibility level.");
+
+        var capabilities = new PagingCapabilities(probe.ProductVersion, version.Major, compatibilityLevel);
+        _pagingCapabilities[key] = capabilities;
+        return capabilities;
+    }
+
+    private static string PagingCapabilitiesCacheKey(ConnectionSettings settings, string database)
+        => settings.Server.Trim() + "\0" + database;
+
+    private static bool IsOffsetFetchSyntaxError(DatabaseAccessException ex)
+        => ex.InnerException is SqlException sql
+           && (sql.Number is 102 or 153)
+           && (sql.Message.Contains("OFFSET", StringComparison.OrdinalIgnoreCase)
+               || sql.Message.Contains("FETCH", StringComparison.OrdinalIgnoreCase));
+
+    private static DatabaseAccessException UnsupportedPaging(PagingCapabilities capabilities, string? serverError = null)
+    {
+        var message = $"Detected SQL Server version {capabilities.ProductVersion} (major {capabilities.MajorVersion}) and database compatibility level {capabilities.CompatibilityLevel}. OFFSET/FETCH requires SQL Server 2012+ and compatibility level 110+; the read-only ROW_NUMBER fallback requires SQL Server 2005+ and compatibility level 90+.";
+        if (!string.IsNullOrWhiteSpace(serverError)) message += $" SQL Server error: {serverError}";
+        return new DatabaseAccessException(DatabaseErrorKind.PagingNotSupported, message);
+    }
+
+    private sealed record PagingProbe(string? ProductVersion, int? CompatibilityLevel);
+
+    private sealed record PagingCapabilities(
+        string ProductVersion, int MajorVersion, int CompatibilityLevel, bool UseRowNumberFallback = false)
+    {
+        public bool SupportsOffsetFetch => !UseRowNumberFallback && MajorVersion >= 11 && CompatibilityLevel >= 110;
+        public bool SupportsRowNumber => MajorVersion >= 9 && CompatibilityLevel >= 90;
     }
 
     private static Task<List<T>> QueryAsync<T>(

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
@@ -17,12 +18,23 @@ namespace FastDbExplorer.Wpf.Views;
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
 /// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit" /
 /// "coordRename" / "coordSelectClear"); the page answers with "pointHover" and "pointSelect".
+/// "coordUpsert" also carries the marker style (color, iconKey, iconPath); a style change simply sends the layer again.
+/// The page also reports its camera ("view"); the view model keeps it, because this view is rebuilt every time the
+/// user returns to the map section, and the next "load" message carries the saved camera back.
 /// </summary>
 public partial class MapView : UserControl
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private MapViewModel? _viewModel;
     private bool _pageReady;
+    private Guid? _queryResultLayerId;
+
+    // One WebView2 environment for every map view: two environments on the same data folder can conflict.
+    private static Task<CoreWebView2Environment>? _sharedEnvironment;
+    private bool _closing; // set while this view is unloading: late WebView2 callbacks must not touch the control
+
+    /// <summary>True for the copy that lives in <see cref="MapWindow"/>: it does not open another window itself.</summary>
+    public bool IsDetached { get; init; }
 
     public MapView()
     {
@@ -34,7 +46,17 @@ public partial class MapView : UserControl
             if (_viewModel is not null) _ = _viewModel.EnsureCoordinateLayersLoadedAsync();
             await InitializeWebAsync();
         };
-        Unloaded += (_, _) => { Detach(); Web.Dispose(); };
+        Unloaded += (_, _) =>
+        {
+            _closing = true;
+            Detach();
+            if (Web.CoreWebView2 is { } core)
+            {
+                core.WebResourceRequested -= OnTileRequested;
+                core.WebMessageReceived -= OnMessage;
+            }
+            Web.Dispose();
+        };
     }
 
     private void Attach()
@@ -50,6 +72,10 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerZoomRequested += PostCoordinateZoom;
         _viewModel.CoordinateLayerRenamed += PostCoordinateRename;
         _viewModel.SelectionClearRequested += PostSelectionClear;
+        _viewModel.QueryResultLayerChanged += PostQueryResultLayer;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        if (!IsDetached) _viewModel.PopOutRequested += OpenDetachedWindow;
+        UpdateWebVisibility();
     }
 
     private void Detach()
@@ -64,6 +90,42 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerZoomRequested -= PostCoordinateZoom;
         _viewModel.CoordinateLayerRenamed -= PostCoordinateRename;
         _viewModel.SelectionClearRequested -= PostSelectionClear;
+        _viewModel.QueryResultLayerChanged -= PostQueryResultLayer;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _viewModel.PopOutRequested -= OpenDetachedWindow;
+    }
+
+    /// <summary>Opens the map in its own window. Both windows share this view model; this copy is collapsed meanwhile.</summary>
+    /// <remarks>
+    /// Only one WebView2 is alive at a time: the Map section is left first (its WebView is released, the same path as
+    /// switching sections), the window opens after that, and when the window closes the Map section is opened again.
+    /// </remarks>
+    private void OpenDetachedWindow()
+    {
+        if (_viewModel is null) return;
+        var shell = Window.GetWindow(this)?.DataContext as MainViewModel;
+        shell?.NavigateCommand.Execute(AppSection.Home);
+
+        var window = new MapWindow(_viewModel);
+        window.Closed += (_, _) => shell?.NavigateCommand.Execute(AppSection.Map);
+        Dispatcher.BeginInvoke(() => window.Show(), DispatcherPriority.ApplicationIdle);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MapViewModel.IsPoppedOut) or nameof(MapViewModel.HasMap)) UpdateWebVisibility();
+    }
+
+    /// <summary>
+    /// The WebView is a native window that WPF cannot layer over. The detached copy always shows the map when there is one.
+    /// The copy in the Map section steps aside while the map is in its own window and shows a short note instead.
+    /// </summary>
+    private void UpdateWebVisibility()
+    {
+        var hasMap = _viewModel?.HasMap == true;
+        var stepAside = !IsDetached && _viewModel?.IsPoppedOut == true;
+        Web.Visibility = hasMap && !stepAside ? Visibility.Visible : Visibility.Collapsed;
+        DetachedNote.Visibility = stepAside ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task InitializeWebAsync()
@@ -79,13 +141,14 @@ public partial class MapView : UserControl
 
         try
         {
-            var dataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDbExplorer", "WebView2");
-            var environment = await CoreWebView2Environment.CreateAsync(null, dataFolder);
+            _sharedEnvironment ??= CreateEnvironmentAsync();
+            var environment = await _sharedEnvironment;
+            if (_closing) return; // the window was closed while the runtime was starting
             await Web.EnsureCoreWebView2Async(environment);
         }
         catch (Exception ex) // UI boundary: a missing runtime must become a readable message, not a crash
         {
+            _sharedEnvironment = null; // allow a retry after the problem is fixed
             _viewModel.ReportWebViewProblem(ex.Message);
             return;
         }
@@ -108,8 +171,18 @@ public partial class MapView : UserControl
         core.Navigate("https://app.local/map.html");
     }
 
+    private static Task<CoreWebView2Environment> CreateEnvironmentAsync()
+    {
+        var dataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDbExplorer", "WebView2");
+        return CoreWebView2Environment.CreateAsync(null, dataFolder);
+    }
+
     private async void OnTileRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
+        // Once the view is unloading, its WebView2 is being disposed: a request that is still being answered must not
+        // touch the request or the deferral any more (answering a disposed WebView2 can take the whole process down).
+        if (_closing) return;
         var deferral = e.GetDeferral();
         try
         {
@@ -128,17 +201,18 @@ public partial class MapView : UserControl
                 var t = await source.GetTileAsync(z, x, y, CancellationToken.None);
                 return t is { IsGzip: true } ? t with { Data = Gunzip(t.Data), IsGzip = false } : t;
             });
+            if (_closing) return; // the view was closed while the tile was being read
             e.Response = tile is null
                 ? Respond(404, "Not Found", null, null)
                 : Respond(200, "OK", tile.Data, tile.ContentType);
         }
         catch (Exception) // event-handler boundary: answer 500 so the page keeps working
         {
-            e.Response = Respond(500, "Error", null, null);
+            if (!_closing) e.Response = Respond(500, "Error", null, null);
         }
         finally
         {
-            deferral.Complete();
+            if (!_closing) deferral.Complete();
         }
     }
 
@@ -166,7 +240,7 @@ public partial class MapView : UserControl
 
     private void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        if (_viewModel is null) return;
+        if (_viewModel is null || _closing) return;
         using var doc = JsonDocument.Parse(e.WebMessageAsJson);
         var root = doc.RootElement;
         switch (root.GetProperty("type").GetString())
@@ -177,12 +251,18 @@ public partial class MapView : UserControl
                 _viewModel.ClearSelectedPoint(); // a fresh page has no highlighted point
                 PushSource();
                 PushCoordinateLayers();
+                PushQueryResultLayer();
+                _viewModel.OnPageReady(); // an action that waited for this page (zoom to a layer chosen in the palette)
                 break;
             case "cursor":
                 _viewModel.SetCursor(root.GetProperty("lng").GetDouble(), root.GetProperty("lat").GetDouble());
                 break;
             case "zoom":
                 _viewModel.SetZoom(root.GetProperty("zoom").GetDouble());
+                break;
+            case "view":
+                _viewModel.RememberView(
+                    root.GetProperty("lng").GetDouble(), root.GetProperty("lat").GetDouble(), root.GetProperty("zoom").GetDouble());
                 break;
             case "pointHover":
                 _viewModel.SetHoverPoint(Text(root, "name"), Text(root, "layer"));
@@ -204,10 +284,13 @@ public partial class MapView : UserControl
     {
         if (!_pageReady || _viewModel?.Source is not { } source) return;
         var info = source.Info;
+        var saved = _viewModel.LastView;
         Post(new
         {
             type = "load",
             dark = ThemeService.IsDark(),
+            // null for a newly opened file (the page starts on Iran); otherwise the camera the user left the map with.
+            view = (saved is { } camera) ? new { lng = camera.Lng, lat = camera.Lat, zoom = camera.Zoom } : null,
             info = new
             {
                 name = info.Name,
@@ -236,6 +319,20 @@ public partial class MapView : UserControl
         foreach (var item in _viewModel.CoordinateLayers) PostCoordinateLayer(item.Layer);
     }
 
+    private void PushQueryResultLayer()
+    {
+        if (_viewModel?.QueryResultLayer is { } layer) PostQueryResultLayer(layer);
+    }
+
+    private void PostQueryResultLayer(MapLayer? layer)
+    {
+        if (_queryResultLayerId is { } previous) PostCoordinateRemove(previous);
+        _queryResultLayerId = layer?.Id;
+        if (layer is null) return;
+        PostCoordinateLayer(layer);
+        PostCoordinateZoom(layer.Id);
+    }
+
     private void PostCoordinateLayer(MapLayer layer) => Post(new
     {
         type = "coordUpsert",
@@ -243,6 +340,10 @@ public partial class MapView : UserControl
         name = layer.Name,
         visible = layer.Visibility,
         radiusMeters = layer.RadiusMeters,
+        // Marker style: the colour is always resolved here (chosen or automatic), the icon travels as SVG path data.
+        color = MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color),
+        iconKey = layer.IconKey,
+        iconPath = MapMarkerCatalog.Find(layer.IconKey)?.PathData,
         points = CoordinateLayerGeoJson.Points(layer),
         circles = CoordinateLayerGeoJson.Circles(layer),
         bounds = CoordinateLayerGeoJson.Bounds(layer)
@@ -261,7 +362,7 @@ public partial class MapView : UserControl
 
     private void Post(object message)
     {
-        if (_pageReady && Web.CoreWebView2 is not null)
+        if (_pageReady && !_closing && Web.CoreWebView2 is not null)
             Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, Json));
     }
 

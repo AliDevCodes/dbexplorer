@@ -1,12 +1,14 @@
-# FastDbExplorer — Project Master Context & AI Handoff (v MVP-02 + Map slice 1)
+# FastDbExplorer — Project Master Context & AI Handoff (v MVP-02 + Map slice 1 + adaptive paging)
 
 > **Purpose:** if the chat is lost, this single file + the repository is enough for a new AI agent or developer to continue.
-> **Last updated:** 2026-10-04 · **Owner language:** Persian (UI is Persian RTL) · **Docs language:** English (AI-friendly)
+> **Last updated:** 2026-10-08 · **Owner language:** Persian (UI is Persian RTL) · **Docs language:** English (AI-friendly)
 
 ## 0. خلاصه به زبان ساده (Persian summary)
 - برنامه‌ی دسکتاپ **فقط‌خواندنی** برای کاوش پایگاه‌داده‌های خیلی بزرگ SQL Server (WPF، .NET 10، رابط فارسی راست‌چین، تم تیره/روشن خودکار).
 - **MVP-01 انجام و توسط مالک تأیید شده:** اتصال (Windows/SQL)، لیست دیتابیس‌ها و جداول، جستجوی جدول، اتصال‌های اخیر (بدون رمز).
 - **MVP-02 نوشته و تحویل شده؛ مالک گفته خوب کار می‌کند (جزئیات تست نشده):** انتخاب ستون، فیلتر پارامتری با ۱۳ عملگر، صفحه‌بندی ترکیبی OFFSET→Keyset، لغو، timeout.
+- **صفحه‌بندی تطبیقی:** نسخه SQL Server و سطح سازگاری فقط‌خواندنی بررسی می‌شود؛ در صورت نیاز کوئری `ROW_NUMBER()` جایگزین می‌شود و هیچ تنظیم یا ساختار دیتابیسی تغییر نمی‌کند.
+- **فیلتر تاریخ شمسی و خروجی نتایج (کدنویسی‌شده، هنوز build/run نشده):** ورودی تاریخ شمسی برای Explorer/Monitoring، نمایش شمسی در grid، انتخاب ردیف و لایه‌ی موقت نقشه، و خروجی Excel صفحه‌به‌صفحه.
 - **ماژول نقشه (مرحله‌ی ۱ نوشته شد، هنوز تست نشده):** نمایش MBTiles (وکتور و تصویری) با MapLibre داخل WebView2، لایه‌ها، مختصات، زوم. GMDB فقط اگر ساختار MBTiles داشته باشد باز می‌شود (آزمایشی) و در غیر این صورت فهرست جدول‌ها گزارش می‌شود. PBF از نوع OSM خام است (`asia-latest.osm.pbf`) و باید ابتدا به MBTiles تبدیل شود؛ تبدیل‌گر مرحله‌ی بعد است. **برای GMDB واقعی به یک نمونه‌ی کوچک فایل نیاز داریم.**
 - محدودیت مهم AI: محیط AI لینوکس است، .NET و اینترنت ندارد ⇒ AI **نمی‌تواند build/اجرا کند**. هر خروجی AI تا وقتی مالک روی ویندوز build و تست نکرده «تأییدنشده» است.
 
@@ -18,7 +20,7 @@ Goal: read/analyze safely with maximum performance and minimum load. Never modif
 1. **Read-only.** No INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/TRUNCATE/MERGE/EXEC. Enforced by: `ApplicationIntent=ReadOnly` in the connection string, and `ReadOnlySqlGuard` on every command (single SELECT/WITH only; ignores [identifiers] and 'literals').
 2. **Filtering happens on the server.** Never load whole tables. Never `SELECT *`. Never `DataTable`. Stream with `SqlDataReader`; always page; always support cancellation; command timeout 30 s.
 3. **User values are never concatenated into SQL.** Only typed parameters (`ValueConverter`). Identifiers come from the real column list and are bracket-quoted.
-4. **No passwords on disk.** Recent connections store server + auth mode + username only.
+4. **No database or app-login passwords on disk.** Named connection profiles store their friendly name, stable ID, server, auth mode, username, and certificate setting only; legacy recent-connection JSON is migrated on load. SQL passwords are requested for each SQL-auth connection and kept in memory for that session. The startup `admin` / `123` login is a demo-only UI gate, not real security and does not protect database data; see `docs/DEMO_LOGIN.md`.
 5. **No `COUNT(*)`** on big tables. Approximate rows come from `sys.partitions`; "has next page" = fetch pageSize+1.
 6. Small vertical slices. Verify before claiming done. Do not redesign architecture without technical evidence.
 
@@ -36,7 +38,7 @@ tests/FastDbExplorer.Tests ──► Infrastructure
 - **Domain:** plain models (`ConnectionSettings`, `SavedConnection`, `TableInfo`, `ColumnInfo`, `PageRequest`, `PageResult`, `FilterCondition`, `DatabaseAccessException`). No framework references.
 - **Application:** interfaces only (`IDatabaseMetadataService`, `IConnectionProfileStore`, `IMapSource`, `IMapSourceFactory`).
 - **Infrastructure:** `SqlServerMetadataService`, `SelectQueryBuilder`, `ValueConverter`, `ReadOnlySqlGuard`, `SqlConnectionStringFactory`, `JsonConnectionProfileStore`, and `Maps/` (`MapSourceFactory`, `MbTilesMapSource`, `MvtLayerReader`).
-- **Wpf (composition root):** DI in `App.xaml.cs`; `MainViewModel` navigates Connection → Explorer; Explorer hosts `TableQueryViewModel`.
+- **Wpf (composition root):** DI in `App.xaml.cs`; after splash and demo login, `MainViewModel` hosts Home, Connections, Explorer, Map, and Monitoring; Connections manages named profiles and the shell selector reconnects into a fresh session.
 - **Errors:** `SqlException` → `DatabaseAccessException(kind)` in Infrastructure → Persian text via `Strings.Describe` in the UI.
 
 ### File map
@@ -110,13 +112,13 @@ tests/FastDbExplorer.Tests ──► Infrastructure
 ```
 
 ## 5. Key flows (where to look)
-- **Connect:** `ConnectionView.xaml` → `ConnectionViewModel.ConnectAsync` → `GetDatabasesAsync` → `SaveAsync` (recent) → event `Connected` → `MainViewModel.OnConnected` → `ExplorerViewModel`.
+- **Connect:** `ConnectionsView.xaml` → `ConnectionViewModel` profile save/select → SQL password prompt when needed → `GetDatabasesAsync` → event `Connected` → `MainViewModel.OnConnected` creates a new Explorer and Monitoring session after shutting down the previous one.
 - **Tables:** `ExplorerViewModel.LoadTablesAsync` → `GetTablesAsync` (`sys.tables` + `sys.partitions`, no scan). Selecting a table creates a `TableQueryViewModel`.
-- **Query/Run:** `TableQueryViewModel.RunAsync` → `PageRequest` → `GetPageAsync` → `GetColumnsAsync` (validates names, finds PK) → `SelectQueryBuilder.Build` → guard → reader (pageSize+1 rows).
+- **Query/Run:** `TableQueryViewModel.RunAsync` → `PageRequest` → `GetPageAsync` → `GetColumnsAsync` (validates names, finds PK) → read-only paging capability probe (server version + current DB compatibility, cached per server/database) → `SelectQueryBuilder.Build` (`OFFSET/FETCH` or `ROW_NUMBER()` fallback) → guard → reader (pageSize+1 rows). No database settings or schema are changed.
 - **Paging:** stack of `PageCursor(offset, afterKey)`. OFFSET below 10,000 rows; keyset (`key > lastKey`, composite keys expanded to an OR chain) from there on; Previous pops the stack. Keyset only when the PK is usable; otherwise user-chosen order column + OFFSET only.
 - **Theme:** `ThemeService` reads the Windows setting, swaps `Themes/Light.xaml`/`Dark.xaml` (merged dictionary **index 0**), sets dark title bar. All styles use `DynamicResource`.
 - **Texts:** everything user-facing is in `Localization/Strings.cs` (`x:Static` in XAML). Ready for .resx later.
-- **Result grid:** columns are created at run time in `TableQueryView.xaml.cs`; rows are `GridRow` (pre-formatted strings, bound by index `[0]`).
+- **Result grid:** columns are created at run time in `TableQueryView.xaml.cs`; `GridRow` cells retain raw values, show concise previews, expose full text in tooltips/clipboard, and selected rows can be mapped. Query export streams every matching page into an `.xlsx` without changing the database.
 
 - **Map:** `MapViewModel.OpenPathAsync` → `MapSourceFactory` (by extension) → `MbTilesMapSource` (SQLite, read-only). `MapView` hosts WebView2: page `Assets/Map/map.html` is served from virtual host `https://app.local`; tile URLs `https://tiles.local/{z}/{x}/{y}` are intercepted in `OnTileRequested` and answered from the open file (gzip vector tiles are sent with `Content-Encoding: gzip`; XYZ y is flipped to TMS rows). Host↔page messages (JSON): to page `load|layer|fit`, from page `ready|cursor|zoom`. Style is generated generically in JS (fill/line/circle per vector layer, colour hashed from layer name) so any vector file renders; layers panel toggles `<layer>|fill|line|circle`.
 
@@ -149,6 +151,7 @@ tests/FastDbExplorer.Tests ──► Infrastructure
 | D17 | OSM PBF (`*.osm.pbf`) is NOT rendered directly; UI explains conversion. Converter (tilemaker/Planetiler, bbox, progress, cancel) is a later slice | raw OSM is not tiles; asia-latest is huge |
 | D18 | Labels (place, road, water, poi, house number...) for OpenMapTiles-style vector files; glyph PBFs (`NotoSans`) and the RTL plugin are downloaded by `setup-map-assets.cmd` into `Assets/Map`; name priority `name:fa` → `name_en` → `name:latin` → `name` | owner saw a map without any names; fonts are plain local files, so no internet at run time |
 | D19 | Tile requests from Web Workers are intercepted with `AddWebResourceRequestedFilter(uri, context, RequestSourceKinds.All)`; gzip tiles are unzipped in C# | MapLibre fetches tiles inside workers; the 2-argument filter only sees the page (map stayed blank) |
+| D27 | Paging detects SQL Server version/compatibility with `SELECT`, uses a read-only `ROW_NUMBER()` fallback when `OFFSET/FETCH` is unsupported, and reports exact capability details if neither works | Support older SQL Server compatibility levels without changing the database |
 
 ## 8. Lessons learned (bugs we already hit — do not repeat)
 - **L1 Blank screen:** an `x:Class` view without a code-behind calling `InitializeComponent()` builds fine but renders empty. Check every new View.
@@ -176,7 +179,7 @@ tests/FastDbExplorer.Tests ──► Infrastructure
 
 **Facts:** MBTiles = SQLite `metadata(name,value)` + `tiles(zoom_level,tile_column,tile_row,tile_data)`; `tile_row` is TMS (`xyz_y = 2^z−1−row`); vector tiles are gzip MVT protobuf. OSM PBF = zlib blobs of nodes/ways/relations (header block type `OSMHeader`).
 **Limits:** WebView2 runtime required (Edge WebView2 Runtime; present on Windows 11, usually on 10). WebView2 is a native window: WPF elements cannot overlay the map (hence side panels/toolbars only). Drag-and-drop of a file works on the empty state only. Style is generic (no labels, auto colours).
-**Next slices (suggested order):** (1) owner builds & tests slice 1 with a real vector MBTiles; (2) ~~GMDB real support~~ done (unverified); (3) PBF converter; (4) owner-specified map tools (feature inspect, measurement, search, import of coordinates, export…); (5) labels/glyphs offline bundle and custom styles.
+**Next slices (suggested order):** (1) owner builds & tests current WPF changes and the map with real data; (2) ~~GMDB real support~~ done (unverified); (3) PBF converter; (4) owner-specified map tools (feature inspect, measurement, search, import of coordinates, export…); (5) labels/glyphs offline bundle and custom styles.
 
 ## 10. Roadmap
 | Phase | Scope | Status |
@@ -188,7 +191,7 @@ tests/FastDbExplorer.Tests ──► Infrastructure
 | Map module S3+ | PBF converter, owner-defined tools | planned |
 | MVP-03 | virtualized/streaming viewer, header sorting, column management | planned |
 | MVP-04 | more providers, query history, audit, advanced security | planned |
-Out of scope so far: export, editing data, other DB providers.
+Out of scope so far: editing data and other DB providers. Query-result Excel export is implemented in code but unverified.
 
 ## 11. How to build, test, publish (Windows, .NET 10 SDK)
 - **First time for maps:** run `setup-map-assets.cmd` (downloads MapLibre; needs internet). Then build.
@@ -216,6 +219,6 @@ Out of scope so far: export, editing data, other DB providers.
 - `Contains`/`EndsWith` (LIKE '%x%') can't use indexes → may hit the 30 s timeout on huge tables.
 - Deep OFFSET paging (tables without a usable PK) slows with depth.
 - Huge text/binary cells are read fully before truncation (display cut at 300 chars).
-- Dates must be typed `2025-01-31`; decimals with a dot (invariant culture). No Jalali date input yet.
+- DateTime filters use a Jalali picker, store Gregorian SQL parameters with seconds fixed at `00`, and display DateTime result cells in Jalali. Numeric text values still use invariant culture.
 - Animations ignore Windows "reduce motion". Icon glyph codes should be checked on Windows 10.
 - Floating NuGet versions.

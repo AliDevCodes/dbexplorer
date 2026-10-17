@@ -10,10 +10,11 @@ namespace FastDbExplorer.Infrastructure.Monitoring;
 /// Writes a real .xlsx file (a small SpreadsheetML package) with no third-party library.
 /// One sheet "Records": bold header row, frozen, right-to-left view. Text is stored as inline strings.
 /// </summary>
-public sealed class XlsxReportWriter : IReportWriter
+public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
 {
     private const string Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
     private const int MaxCellChars = 32_000;
+    private const int MaxExcelRows = 1_048_576;
     private const long MaxExactInteger = 999_999_999_999_999; // Excel keeps 15 digits; longer integers are written as text
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private static readonly UTF8Encoding Utf8 = new(false);
@@ -52,6 +53,40 @@ public sealed class XlsxReportWriter : IReportWriter
         string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns,
         IReadOnlyList<object?[]> rows, string folder, CancellationToken ct)
         => Task.Run(() => Write(monitorName, checkedAtUtc, columns, rows, folder, ct), ct);
+
+    public Task WriteQueryAsync(
+        IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct)
+        => Task.Run(() => WriteQueryCoreAsync(columns, rows, path, ct), ct);
+
+    private static async Task WriteQueryCoreAsync(
+        IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var fullPath = Path.GetFullPath(path);
+        var folder = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(folder);
+        var temp = fullPath + ".tmp";
+        try
+        {
+            using (var file = File.Create(temp))
+            using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
+            {
+                AddText(zip, "[Content_Types].xml", ContentTypes);
+                AddText(zip, "_rels/.rels", RootRels);
+                AddText(zip, "xl/workbook.xml", Workbook);
+                AddText(zip, "xl/_rels/workbook.xml.rels", WorkbookRels);
+                AddText(zip, "xl/styles.xml", Styles);
+                using var sheet = zip.CreateEntry("xl/worksheets/sheet1.xml", CompressionLevel.Optimal).Open();
+                await WriteQuerySheetAsync(sheet, columns, rows, ct);
+            }
+            File.Move(temp, fullPath, true);
+        }
+        catch
+        {
+            if (File.Exists(temp)) File.Delete(temp);
+            throw;
+        }
+    }
 
     private static string Write(
         string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns,
@@ -129,6 +164,47 @@ public sealed class XlsxReportWriter : IReportWriter
         x.WriteEndElement(); // sheetData
 
         x.WriteEndElement(); // worksheet
+        x.WriteEndDocument();
+    }
+
+    private static async Task WriteQuerySheetAsync(
+        Stream stream, IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct)
+    {
+        using var x = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = Utf8, CloseOutput = false });
+        x.WriteStartDocument(true);
+        x.WriteStartElement("worksheet", Ns);
+        x.WriteStartElement("sheetViews", Ns);
+        x.WriteStartElement("sheetView", Ns);
+        x.WriteAttributeString("rightToLeft", "1");
+        x.WriteAttributeString("workbookViewId", "0");
+        x.WriteStartElement("pane", Ns);
+        x.WriteAttributeString("ySplit", "1");
+        x.WriteAttributeString("topLeftCell", "A2");
+        x.WriteAttributeString("activePane", "bottomLeft");
+        x.WriteAttributeString("state", "frozen");
+        x.WriteEndElement();
+        x.WriteEndElement();
+        x.WriteEndElement();
+        x.WriteStartElement("cols", Ns);
+        x.WriteStartElement("col", Ns);
+        x.WriteAttributeString("min", "1");
+        x.WriteAttributeString("max", Math.Max(1, columns.Count).ToString(Inv));
+        x.WriteAttributeString("width", "22");
+        x.WriteAttributeString("customWidth", "1");
+        x.WriteEndElement();
+        x.WriteEndElement();
+        x.WriteStartElement("sheetData", Ns);
+        WriteRow(x, 1, columns.Cast<object?>().ToArray(), header: true);
+        var rowNumber = 2;
+        await foreach (var row in rows.WithCancellation(ct).ConfigureAwait(false))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (rowNumber >= MaxExcelRows + 1)
+                throw new InvalidOperationException("Excel supports at most 1,048,575 data rows per worksheet.");
+            WriteRow(x, rowNumber++, row, header: false);
+        }
+        x.WriteEndElement();
+        x.WriteEndElement();
         x.WriteEndDocument();
     }
 

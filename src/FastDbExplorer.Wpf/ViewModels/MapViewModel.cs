@@ -22,8 +22,9 @@ public sealed partial class MapLayerItem(string name, Action<string, bool> onCha
 /// <summary>
 /// Map workspace: opens a map file, owns the opened source, and relays commands to the page through events
 /// (the view talks to the WebView2/MapLibre page; this class never touches UI controls).
-/// Phase 2 adds the Excel coordinate layers: import, list, visibility, radius (metres), rename, delete, refresh, zoom.
-/// It also remembers the last opened map (reopened at start-up) and shows the point the mouse is over / the selected one.
+/// Phase 2 adds the Excel coordinate layers: import, list, visibility, radius (metres), rename, delete, refresh, zoom,
+/// and a per-layer marker icon + colour. It also remembers the last opened map (reopened at start-up) and shows the
+/// point the mouse is over / the selected one.
 /// </summary>
 public sealed partial class MapViewModel : ObservableObject
 {
@@ -51,6 +52,8 @@ public sealed partial class MapViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(HasCoordinateLayers));
             OnPropertyChanged(nameof(ShowCoordinatePanel));
+            OnPropertyChanged(nameof(ShowEmptyExcelHint));
+            OnPropertyChanged(nameof(ExcelTabText));
         };
         ResetInfo();
     }
@@ -60,12 +63,13 @@ public sealed partial class MapViewModel : ObservableObject
     public event Action<string, bool>? LayerToggled;
     public event Action? FitRequested;
 
-    /// <summary>A coordinate layer was added, or its data/radius changed: the view (re)sends it to the page.</summary>
+    /// <summary>A coordinate layer was added, or its data/radius/style changed: the view (re)sends it to the page.</summary>
     public event Action<MapLayer>? CoordinateLayerChanged;
     public event Action<Guid, bool>? CoordinateLayerVisibilityChanged;
     public event Action<Guid>? CoordinateLayerRemoved;
     public event Action<Guid>? CoordinateLayerZoomRequested;
     public event Action<Guid, string>? CoordinateLayerRenamed;
+    public event Action<MapLayer?>? QueryResultLayerChanged;
 
     /// <summary>The user asked to drop the highlighted point; the view tells the page.</summary>
     public event Action? SelectionClearRequested;
@@ -76,6 +80,12 @@ public sealed partial class MapViewModel : ObservableObject
     public ObservableCollection<MapLayerItem> Layers { get; } = [];
 
     public ObservableCollection<CoordinateLayerItem> CoordinateLayers { get; } = [];
+
+    public MapLayer? QueryResultLayer { get; private set; }
+    public bool HasQueryResultLayer => QueryResultLayer is not null;
+    public string QueryResultLayerSummary => QueryResultLayer is { } layer
+        ? CoordinateStrings.QueryResultsSummary(layer.Points.Count)
+        : "";
 
     [ObservableProperty] private bool _hasMap;
     [ObservableProperty] private bool _isLoading;
@@ -91,12 +101,30 @@ public sealed partial class MapViewModel : ObservableObject
     [ObservableProperty] private string _coordinateStatus = "";
     [ObservableProperty] private bool _coordinateStatusIsProblem;
 
+    /// <summary>Side panel tab: Excel points (true) or the layers of the opened map file (false).</summary>
+    [ObservableProperty] private bool _isExcelTab = true;
+
     // Point under the mouse (status bar) and the clicked point (info card in the coordinate panel).
     [ObservableProperty] private string _hoverText = "";
     [ObservableProperty] private bool _hasSelectedPoint;
     [ObservableProperty] private string _selectedPointName = "";
     [ObservableProperty] private string _selectedPointLayer = "";
     [ObservableProperty] private string _selectedPointCoords = "";
+
+    public bool IsMapLayersTab
+    {
+        get => !IsExcelTab;
+        set => IsExcelTab = !value;
+    }
+
+    public string ExcelTabText => MapUiStrings.TabExcel(CoordinateLayers.Count);
+    public string MapTabText => MapUiStrings.TabMap(Layers.Count);
+
+    /// <summary>The single side panel (tabs: Excel points | map layers). It sits beside the map, never over it (WebView2 airspace).</summary>
+    public bool ShowSidePanel => HasMap && IsLayersOpen;
+
+    public bool ShowEmptyExcelHint => !HasCoordinateLayers;
+    public bool HasNoMapLayers => !HasLayers;
 
     public bool ShowLayersPanel => HasMap && IsLayersOpen && HasLayers;
 
@@ -107,10 +135,13 @@ public sealed partial class MapViewModel : ObservableObject
     /// <summary>The coordinate panel needs the map (the layers are drawn on it) and has something to show.</summary>
     public bool ShowCoordinatePanel => HasMap && (HasCoordinateLayers || HasCoordinateStatus);
 
+    partial void OnIsExcelTabChanged(bool value) => OnPropertyChanged(nameof(IsMapLayersTab));
+
     partial void OnHasMapChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowLayersPanel));
         OnPropertyChanged(nameof(ShowCoordinatePanel));
+        OnPropertyChanged(nameof(ShowSidePanel));
         if (!value)
         {
             HoverText = "";
@@ -118,8 +149,18 @@ public sealed partial class MapViewModel : ObservableObject
         }
     }
 
-    partial void OnIsLayersOpenChanged(bool value) => OnPropertyChanged(nameof(ShowLayersPanel));
-    partial void OnHasLayersChanged(bool value) => OnPropertyChanged(nameof(ShowLayersPanel));
+    partial void OnIsLayersOpenChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowLayersPanel));
+        OnPropertyChanged(nameof(ShowSidePanel));
+    }
+
+    partial void OnHasLayersChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowLayersPanel));
+        OnPropertyChanged(nameof(HasNoMapLayers));
+        OnPropertyChanged(nameof(MapTabText));
+    }
 
     partial void OnCoordinateStatusChanged(string value)
     {
@@ -135,6 +176,18 @@ public sealed partial class MapViewModel : ObservableObject
 
     [RelayCommand]
     private void ToggleLayers() => IsLayersOpen = !IsLayersOpen;
+
+    [RelayCommand]
+    private void ShowAllMapLayers()
+    {
+        foreach (var layer in Layers) layer.IsVisible = true;
+    }
+
+    [RelayCommand]
+    private void HideAllMapLayers()
+    {
+        foreach (var layer in Layers) layer.IsVisible = false;
+    }
 
     [RelayCommand]
     private async Task OpenFileAsync()
@@ -181,6 +234,7 @@ public sealed partial class MapViewModel : ObservableObject
             foreach (var name in source.Info.Layers)
                 Layers.Add(new MapLayerItem(name, (n, v) => LayerToggled?.Invoke(n, v)));
             HasLayers = Layers.Count > 0;
+            OnPropertyChanged(nameof(MapTabText));
 
             FileName = Path.GetFileName(path);
             FormatText = $"{source.Info.FormatLabel} · {(source.Info.Kind == MapTileKind.Vector ? "Vector" : "Raster")}";
@@ -250,6 +304,28 @@ public sealed partial class MapViewModel : ObservableObject
         SelectedPointCoords = "";
     }
 
+    /// <summary>Replaces the non-persistent layer made from selected query rows.</summary>
+    public void ShowQueryResultLayer(string tableName, IReadOnlyList<QueryMapPoint> points)
+    {
+        var id = Guid.NewGuid();
+        var mapPoints = points.Select((point, index) =>
+            new MapPoint(Guid.NewGuid(), string.IsNullOrWhiteSpace(point.Name) ? $"Row {index + 1}" : point.Name,
+                point.Latitude, point.Longitude, id, point.Details));
+        QueryResultLayer = new MapLayer(id, CoordinateStrings.QueryResultLayerName + " · " + tableName, tableName, mapPoints);
+        OnPropertyChanged(nameof(HasQueryResultLayer));
+        OnPropertyChanged(nameof(QueryResultLayerSummary));
+        QueryResultLayerChanged?.Invoke(QueryResultLayer);
+    }
+
+    public void ClearQueryResultLayer()
+    {
+        if (QueryResultLayer is null) return;
+        QueryResultLayer = null;
+        OnPropertyChanged(nameof(HasQueryResultLayer));
+        OnPropertyChanged(nameof(QueryResultLayerSummary));
+        QueryResultLayerChanged?.Invoke(null);
+    }
+
     [RelayCommand]
     private void ClearSelection()
     {
@@ -308,7 +384,10 @@ public sealed partial class MapViewModel : ObservableObject
             return;
         }
 
+        // A new layer starts with the next palette colour, so neighbouring layers are told apart at a glance.
+        layer.Color = MapMarkerCatalog.Palette[CoordinateLayers.Count % MapMarkerCatalog.Palette.Count];
         AddCoordinateLayer(layer);
+        IsExcelTab = true;
         SetCoordinateStatus(
             CoordinateStrings.Imported(result.RowsImported, result.RowsSkipped, result.Issues.Count > 0 ? result.Issues[0] : null),
             false);
@@ -326,6 +405,13 @@ public sealed partial class MapViewModel : ObservableObject
         item.Layer.Visibility = visible;
         CoordinateLayerVisibilityChanged?.Invoke(item.Id, visible);
         _ = SaveLayerAsync(item.Layer);
+    }
+
+    /// <summary>The icon or colour of a layer changed: redraw it on the map and keep the choice.</summary>
+    internal async Task ApplyLayerStyleAsync(CoordinateLayerItem item)
+    {
+        CoordinateLayerChanged?.Invoke(item.Layer);
+        await SaveLayerAsync(item.Layer);
     }
 
     internal async Task ApplyRadiusAsync(CoordinateLayerItem item)

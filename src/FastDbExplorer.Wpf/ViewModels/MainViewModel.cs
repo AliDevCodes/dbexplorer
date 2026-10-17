@@ -4,23 +4,27 @@ using CommunityToolkit.Mvvm.Input;
 using FastDbExplorer.Application.Abstractions;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.Services;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
 /// <summary>
-/// Owns the app shell: a persistent navigation rail with four sections (Home, Explorer, Map, Monitoring).
+/// Owns the app shell: a persistent navigation rail with five sections (Home, Connections, Explorer, Map, Monitoring).
 /// Every section keeps its state while the user works in another one, so there is no "Back" button.
-/// Connection is a state, not a page: without a connection Home shows the connect form, Explorer and Monitoring
-/// show an invitation to connect, and the Map always works.
+/// Connections is a separate profile-management area; Home never hosts raw connection fields.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly ConnectionViewModel _connection;
     private readonly MapViewModel _map;
     private readonly IDatabaseMetadataService _metadata;
+    private readonly IFileDialogService _dialogs;
+    private readonly IQueryReportWriter _queryReportWriter;
     private readonly MonitoringViewModelFactory _monitoringFactory;
     private readonly ConnectPromptViewModel _explorerPrompt;
     private readonly ConnectPromptViewModel _monitoringPrompt;
+    private readonly ConnectPromptViewModel _homePrompt;
+    private readonly NavItemViewModel _connectionsNav;
     private readonly NavItemViewModel _monitoringNav;
     private MonitoringViewModel? _monitoring;
     private HomeViewModel? _home;
@@ -38,41 +42,55 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MainViewModel(
         ConnectionViewModel connection, MapViewModel map, IDatabaseMetadataService metadata,
-        MonitoringViewModelFactory monitoringFactory)
+        MonitoringViewModelFactory monitoringFactory, IFileDialogService dialogs, IQueryReportWriter queryReportWriter)
     {
         _connection = connection;
         _map = map;
         _metadata = metadata;
         _monitoringFactory = monitoringFactory;
+        _dialogs = dialogs;
+        _queryReportWriter = queryReportWriter;
 
-        _monitoringNav = new NavItemViewModel(AppSection.Monitoring, ShellStrings.NavMonitoring, "\uE823", 4);
+        _connectionsNav = new NavItemViewModel(AppSection.Connections, ShellStrings.NavConnections, "\uE716", 2);
+        _monitoringNav = new NavItemViewModel(AppSection.Monitoring, ShellStrings.NavMonitoring, "\uE823", 5);
         NavItems =
         [
             new NavItemViewModel(AppSection.Home, ShellStrings.NavHome, "\uE80F", 1),
-            new NavItemViewModel(AppSection.Explorer, ShellStrings.NavExplorer, "\uE80A", 2),
-            new NavItemViewModel(AppSection.Map, ShellStrings.NavMap, "\uE774", 3),
+            _connectionsNav,
+            new NavItemViewModel(AppSection.Explorer, ShellStrings.NavExplorer, "\uE80A", 3),
+            new NavItemViewModel(AppSection.Map, ShellStrings.NavMap, "\uE774", 4),
             _monitoringNav
         ];
 
         _explorerPrompt = new ConnectPromptViewModel(
-            ShellStrings.ExplorerPromptTitle, ShellStrings.ExplorerPromptBody, "\uE80A", () => Navigate(AppSection.Home));
+            ShellStrings.ExplorerPromptTitle, ShellStrings.ExplorerPromptBody, "\uE80A", () => Navigate(AppSection.Connections));
         _monitoringPrompt = new ConnectPromptViewModel(
-            ShellStrings.MonitoringPromptTitle, ShellStrings.MonitoringPromptBody, "\uE823", () => Navigate(AppSection.Home));
+            ShellStrings.MonitoringPromptTitle, ShellStrings.MonitoringPromptBody, "\uE823", () => Navigate(AppSection.Connections));
+        _homePrompt = new ConnectPromptViewModel(
+            ShellStrings.HomePromptTitle, ShellStrings.HomePromptBody, "\uE716", () => Navigate(AppSection.Connections));
 
         _connection.Connected += OnConnected;
-        _connection.OpenMapRequested += () => Navigate(AppSection.Map);
+        _connection.ProfileDeleted += OnProfileDeleted;
+        _connection.Profiles.CollectionChanged += (_, _) => RefreshActiveProfile();
         _map.BackRequested += () => Navigate(AppSection.Home);
 
-        Navigate(AppSection.Home);
+        Navigate(AppSection.Connections);
     }
 
     /// <summary>Raised when the Ctrl+K palette should open; the window (view layer) shows it.</summary>
     public event Action<CommandPaletteViewModel>? PaletteRequested;
 
     public IReadOnlyList<NavItemViewModel> NavItems { get; }
+    public IReadOnlyList<SavedConnection> Profiles => _connection.Profiles;
+    public ConnectionViewModel ConnectionManager => _connection;
 
     public bool IsConnected => Explorer is not null;
     public string ServerName => Explorer?.ServerName ?? "";
+
+    [ObservableProperty]
+    private SavedConnection? _activeProfile;
+
+    public Task<bool> SwitchProfileAsync(SavedConnection profile) => _connection.ConnectProfileAsync(profile);
 
     public async Task InitializeAsync()
     {
@@ -159,16 +177,30 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (section == AppSection.Map) return _map;
 
+        if (section == AppSection.Connections) return _connection;
+
         if (_home is not null) return _home;
-        return _connection;
+        return _homePrompt;
     }
 
-    private void OnConnected(ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases)
+    private void OnConnected(ConnectionSettings settings, IReadOnlyList<DatabaseInfo> databases, SavedConnection profile)
     {
+        var destination = IsConnected ? _section : AppSection.Home;
         EndSession();
+        ActiveProfile = profile;
 
-        var explorer = new ExplorerViewModel(_metadata, settings, databases);
+        var explorer = new ExplorerViewModel(_metadata, settings, databases, _dialogs, _queryReportWriter);
+        explorer.ShowSelectedRowsOnMapRequested += (tableName, points) =>
+        {
+            _map.ShowQueryResultLayer(tableName, points);
+            Navigate(AppSection.Map);
+        };
         var monitoring = _monitoringFactory.Create(settings, databases);
+        monitoring.ShowSelectedRowsOnMapRequested += (tableName, points) =>
+        {
+            _map.ShowQueryResultLayer(tableName, points);
+            Navigate(AppSection.Map);
+        };
         _monitoring = monitoring;
 
         monitoring.BackRequested += () => Navigate(AppSection.Home);
@@ -190,12 +222,28 @@ public sealed partial class MainViewModel : ObservableObject
         _home = new HomeViewModel(settings.Server, databases.Count, monitoring, Navigate, Disconnect);
         Explorer = explorer;
 
-        Navigate(AppSection.Home);
+        Navigate(destination);
         _ = monitoring.InitializeAsync();
+    }
+
+    private void OnProfileDeleted(SavedConnection profile)
+    {
+        if (ActiveProfile?.Id != profile.Id) return;
+        EndSession();
+        Navigate(AppSection.Connections);
+    }
+
+    private void RefreshActiveProfile()
+    {
+        if (ActiveProfile is null) return;
+        var saved = _connection.Profiles.FirstOrDefault(profile => profile.Id == ActiveProfile.Id);
+        if (saved is not null) ActiveProfile = saved;
     }
 
     private void EndSession()
     {
+        Explorer?.Shutdown();
+        _map.ClearQueryResultLayer();
         if (_monitoring is not null)
         {
             if (_alertsHandler is not null) _monitoring.Alerts.CollectionChanged -= _alertsHandler;
@@ -207,6 +255,7 @@ public sealed partial class MainViewModel : ObservableObject
         _home = null;
         _alertsHandler = null;
         Explorer = null;
+        ActiveProfile = null;
         _unreadAlerts = 0;
         _monitoringNav.Badge = 0;
     }

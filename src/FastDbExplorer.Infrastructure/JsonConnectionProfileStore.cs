@@ -5,10 +5,9 @@ using FastDbExplorer.Domain;
 
 namespace FastDbExplorer.Infrastructure;
 
-/// <summary>Stores recent connections (never passwords) in %AppData%\FastDbExplorer\connections.json.</summary>
+/// <summary>Stores named connection profiles (never passwords) in %AppData%\FastDbExplorer\connections.json.</summary>
 public sealed class JsonConnectionProfileStore : IConnectionProfileStore
 {
-    private const int MaxItems = 8;
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
@@ -26,8 +25,13 @@ public sealed class JsonConnectionProfileStore : IConnectionProfileStore
         if (!File.Exists(_path)) return [];
         try
         {
-            await using var stream = File.OpenRead(_path);
-            return await JsonSerializer.DeserializeAsync<List<SavedConnection>>(stream, Options, ct) ?? [];
+            List<SavedConnection> stored;
+            await using (var stream = File.OpenRead(_path))
+                stored = await JsonSerializer.DeserializeAsync<List<SavedConnection>>(stream, Options, ct) ?? [];
+
+            var profiles = Normalize(stored);
+            if (!stored.SequenceEqual(profiles)) await WriteAsync(profiles, ct);
+            return profiles;
         }
         catch (JsonException)
         {
@@ -37,9 +41,10 @@ public sealed class JsonConnectionProfileStore : IConnectionProfileStore
 
     public async Task SaveAsync(SavedConnection connection, CancellationToken ct = default)
     {
+        var profile = connection.Id == Guid.Empty ? connection with { Id = Guid.NewGuid() } : connection;
         var items = (await LoadAsync(ct)).Where(c => !IsSame(c, connection)).ToList();
-        items.Insert(0, connection);
-        await WriteAsync(items.Take(MaxItems).ToList(), ct);
+        items.Insert(0, profile);
+        await WriteAsync(items, ct);
     }
 
     public async Task RemoveAsync(SavedConnection connection, CancellationToken ct = default)
@@ -56,7 +61,30 @@ public sealed class JsonConnectionProfileStore : IConnectionProfileStore
     }
 
     private static bool IsSame(SavedConnection a, SavedConnection b) =>
-        string.Equals(a.Server, b.Server, StringComparison.OrdinalIgnoreCase)
-        && a.Authentication == b.Authentication
-        && string.Equals(a.UserName, b.UserName, StringComparison.OrdinalIgnoreCase);
+        a.Id != Guid.Empty && b.Id != Guid.Empty
+            ? a.Id == b.Id
+            : string.Equals(a.Server, b.Server, StringComparison.OrdinalIgnoreCase)
+              && a.Authentication == b.Authentication
+              && string.Equals(a.UserName, b.UserName, StringComparison.OrdinalIgnoreCase);
+
+    private static List<SavedConnection> Normalize(IEnumerable<SavedConnection> stored)
+    {
+        var seenIds = new HashSet<Guid>();
+        return stored.Select(profile =>
+        {
+            var id = profile.Id;
+            if (id == Guid.Empty || !seenIds.Add(id))
+            {
+                id = Guid.NewGuid();
+                seenIds.Add(id);
+            }
+
+            var name = string.IsNullOrWhiteSpace(profile.Name)
+                ? profile.Authentication == AuthenticationMode.SqlServer && !string.IsNullOrWhiteSpace(profile.UserName)
+                    ? $"{profile.Server} ({profile.UserName})"
+                    : profile.Server
+                : profile.Name.Trim();
+            return profile with { Id = id, Name = name };
+        }).ToList();
+    }
 }

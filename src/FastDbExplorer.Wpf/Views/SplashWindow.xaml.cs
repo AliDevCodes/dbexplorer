@@ -16,11 +16,12 @@ public partial class SplashWindow : Window
         VersionText.Text = VersionLabel();
     }
 
-    /// <summary>Shows the step text and "step / total", and moves the bar to step/total.</summary>
+    /// <summary>Shows the step text and calculates percentage from step/total.</summary>
     public void Report(int step, int total, string text)
     {
         StatusText.Text = text;
-        CounterText.Text = string.Format(CultureInfo.InvariantCulture, "{0} / {1}", step, total);
+        var percentage = (int)((double)step / Math.Max(total, 1) * 100);
+        PercentageText.Text = string.Format(CultureInfo.InvariantCulture, "{0}%", percentage);
 
         var fraction = Math.Clamp((double)step / Math.Max(total, 1), 0, 1);
         var animation = new DoubleAnimation(TrackWidth * fraction, TimeSpan.FromMilliseconds(320))

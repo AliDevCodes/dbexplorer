@@ -3,6 +3,7 @@
         xmlns:views="clr-namespace:FastDbExplorer.Wpf.Views"
         xmlns:l="clr-namespace:FastDbExplorer.Wpf.Localization"
         Title="FastDbExplorer" Icon="pack://application:,,,/Assets/app.ico" Width="1180" Height="760" MinWidth="960" MinHeight="640"
+        WindowState="Maximized"
         WindowStartupLocation="CenterScreen" FlowDirection="RightToLeft" UseLayoutRounding="True"
         FontFamily="{StaticResource AppFont}" FontSize="14"
         Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}">
@@ -11,7 +12,7 @@
     <WindowChrome CaptionHeight="40" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
   </WindowChrome.WindowChrome>
   <Window.Resources>
-    <DataTemplate DataType="{x:Type vm:ConnectionViewModel}"><views:ConnectionView /></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ConnectionViewModel}"><views:ConnectionsView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:HomeViewModel}"><views:HomeView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ConnectPromptViewModel}"><views:ConnectPromptView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ExplorerViewModel}"><views:ExplorerView /></DataTemplate>
@@ -101,7 +102,7 @@
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
 
-      <!-- Navigation rail -->
+      <!-- Navigation rail: Home, Connections, Explorer, Map, Monitoring -->
       <Border Grid.Column="0" Width="84" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
         <ItemsControl ItemsSource="{Binding NavItems}" IsTabStop="False" Margin="8,12,8,8">
           <ItemsControl.ItemTemplate>
@@ -128,10 +129,10 @@
       <Grid Grid.Column="1">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
 
-        <!-- Top bar: connection status, active database, disconnect -->
+        <!-- Top bar: connection status, active profile/database, disconnect -->
         <Border Grid.Row="0" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,8" MinHeight="52">
           <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
               <Ellipse Width="8" Height="8" VerticalAlignment="Center">
@@ -143,7 +144,7 @@
                 </Ellipse.Style>
               </Ellipse>
               <TextBlock Text="{Binding ServerName}" FlowDirection="LeftToRight" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"
-                         TextTrimming="CharacterEllipsis" MaxWidth="320" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVis}}" />
+                          TextTrimming="CharacterEllipsis" MaxWidth="180" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVis}}" />
               <TextBlock Text="{x:Static l:ShellStrings.NotConnected}" FontSize="13" Margin="10,0,0,0" VerticalAlignment="Center">
                 <TextBlock.Style>
                   <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
@@ -153,16 +154,34 @@
               </TextBlock>
             </StackPanel>
 
-            <ComboBox Grid.Column="1" Width="240" Margin="16,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight"
+            <ComboBox x:Name="ActiveProfileComboBox" Grid.Column="1" Width="170" Margin="16,0,0,0" VerticalAlignment="Center"
+                      ToolTip="{x:Static l:ShellStrings.ActiveProfile}" ItemsSource="{Binding Profiles}" SelectedItem="{Binding ActiveProfile, Mode=OneWay}"
+                      IsSynchronizedWithCurrentItem="False" SelectionChanged="OnActiveProfileSelectionChanged">
+              <ComboBox.Style>
+                <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                  <Style.Triggers><DataTrigger Binding="{Binding Profiles.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                </Style>
+              </ComboBox.Style>
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel FlowDirection="RightToLeft">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Server}" FlowDirection="LeftToRight" HorizontalAlignment="Left" Style="{StaticResource Muted}" FontSize="10" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <ComboBox Grid.Column="2" Width="175" Margin="12,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight"
                       ToolTip="{x:Static l:ShellStrings.ActiveDatabase}"
                       ItemsSource="{Binding Explorer.Databases}" SelectedItem="{Binding Explorer.SelectedDatabase, Mode=TwoWay}"
                       Visibility="{Binding IsConnected, Converter={StaticResource BoolToVis}}">
               <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
             </ComboBox>
 
-            <Button Grid.Column="2" Command="{Binding OpenPaletteCommand}" HorizontalAlignment="Left" VerticalAlignment="Center"
+            <Button Grid.Column="3" Command="{Binding OpenPaletteCommand}" HorizontalAlignment="Left" VerticalAlignment="Center"
                     Margin="16,0,0,0" Padding="12,8" ToolTip="Ctrl+K">
-              <Grid Width="260">
+              <Grid Width="200">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{x:Static l:ShellStrings.SearchButton}" Style="{StaticResource Muted}" FontSize="13" Margin="10,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
@@ -170,7 +189,7 @@
               </Grid>
             </Button>
 
-            <Button Grid.Column="3" Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16" VerticalAlignment="Center"
+            <Button Grid.Column="4" Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16" VerticalAlignment="Center"
                     ToolTip="{x:Static l:Strings.Disconnect}" Command="{Binding DisconnectCommand}"
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVis}}" />
           </Grid>

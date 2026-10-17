@@ -2,6 +2,7 @@
   <FontFamily x:Key="AppFont">pack://application:,,,/Assets/Fonts/#Vazirmatn, Segoe UI Variable Text, Segoe UI, Tahoma</FontFamily>
   <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
   <BooleanToVisibilityConverter x:Key="BoolToVis" />
+  <DropShadowEffect x:Key="DropShadowEffect" BlurRadius="16" ShadowDepth="3" Opacity="0.2" />
 
   <!-- Text -->
   <Style x:Key="Title" TargetType="TextBlock">

@@ -110,6 +110,41 @@ public class CoordinateRenderingTests
         var coordinates = points[0]!["geometry"]!["coordinates"]!;
         Assert.Equal(51.4, coordinates[0]!.GetValue<double>());
         Assert.Equal(35.7, coordinates[1]!.GetValue<double>());
+        Assert.Null(points[0]!["properties"]!["details"]);
+    }
+
+    [Fact]
+    public void GeoJson_query_point_details_are_bounded_and_optional()
+    {
+        var id = Guid.NewGuid();
+        var details = Enumerable.Range(0, 10)
+            .ToDictionary(index => $"Field {index}", index => new string('x', index == 0 ? 400 : 50));
+        var point = new MapPoint(Guid.NewGuid(), "Query row", 35.7, 51.4, id, details);
+        var layer = new MapLayer(id, "Query results", "dbo.Sample", [point]);
+
+        var properties = (JsonObject)((JsonArray)CoordinateLayerGeoJson.Points(layer)["features"]!)[0]!["properties"]!;
+        var serializedDetails = (JsonObject)properties["details"]!;
+
+        Assert.Equal("Query row", properties["name"]!.GetValue<string>());
+        Assert.Equal(8, serializedDetails.Count);
+        Assert.All(serializedDetails.Select(pair => pair.Value!.GetValue<string>()), value => Assert.True(value.Length <= 240));
+        Assert.Equal(240, serializedDetails["Field 0"]!.GetValue<string>().Length);
+        Assert.True(serializedDetails.Sum(pair => pair.Key.Length + pair.Value!.GetValue<string>().Length) <= 1_200);
+    }
+
+    [Fact]
+    public void GeoJson_details_do_not_split_surrogate_pairs_when_truncated()
+    {
+        var id = Guid.NewGuid();
+        var value = new string('a', 238) + "😀z";
+        var point = new MapPoint(Guid.NewGuid(), "Query row", 35.7, 51.4, id,
+            new Dictionary<string, string> { ["Long value"] = value });
+        var layer = new MapLayer(id, "Query results", "dbo.Sample", [point]);
+
+        var properties = (JsonObject)((JsonArray)CoordinateLayerGeoJson.Points(layer)["features"]!)[0]!["properties"]!;
+        var serialized = ((JsonObject)properties["details"]!)["Long value"]!.GetValue<string>();
+
+        Assert.Equal(new string('a', 238) + "…", serialized);
     }
 
     [Fact]

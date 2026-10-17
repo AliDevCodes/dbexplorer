@@ -12,6 +12,7 @@ public static class CoordinateStrings
     public const int MaxNameLength = 100;
 
     public const string PanelTitle = "لایه‌های مختصات (Excel)";
+    public const string QueryResultLayerName = "ردیف‌های انتخاب‌شده";
     public const string ImportExcel = "وارد کردن Excel";
     public const string RadiusLabel = "شعاع اطراف هر نقطه (متر)";
     public const string RadiusTip = "عددی بین 0 تا 20,037,508؛ صفر یعنی بدون دایره";
@@ -46,6 +47,7 @@ public static class CoordinateStrings
     public static string Summary(int points, string fileName) => $"{points:N0} نقطه · {fileName}";
 
     public static string PointsChip(int points) => $"{points:N0} نقطه";
+    public static string QueryResultsSummary(int points) => $"{points:N0} ردیف انتخاب‌شده روی نقشه";
 
     public static string RadiusChip(double meters) =>
         meters > 0 ? $"شعاع {meters.ToString("#,0.###", CultureInfo.InvariantCulture)} متر" : "بدون شعاع";

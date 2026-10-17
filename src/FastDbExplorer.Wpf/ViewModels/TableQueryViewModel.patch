@@ -1,0 +1,23 @@
+--- a/src/FastDbExplorer.Wpf/ViewModels/TableQueryViewModel.cs
++++ b/src/FastDbExplorer.Wpf/ViewModels/TableQueryViewModel.cs
+@@ -20,6 +20,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
+     private readonly CancellationTokenSource _lifetime = new();
+     private readonly Stack<PageCursor> _history = new();
+     private List<ColumnInfo> _keyColumns = [];
++    private IReadOnlyList<ColumnInfo> _columnMeta = [];
+     private PageCursor _current = new(0, null);
+     private PageRequest? _base;
+     private PageResult? _lastResult;
+@@ -60,6 +61,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
+             foreach (var column in meta)
+                 Columns.Add(new ColumnItem(column) { IsSelected = Columns.Count < DefaultSelectedColumns });
+
++            _columnMeta = meta;
+             _keyColumns = meta.Where(c => c.IsPrimaryKey).OrderBy(c => c.KeyOrdinal).ToList();
+             UsesPrimaryKey = _keyColumns.Count > 0 && _keyColumns.All(c => c.IsFilterable);
+             KeyDescription = string.Join(", ", _keyColumns.Select(c => c.Name));
+@@ -100,7 +102,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
+     [RelayCommand]
+     private void AddFilter()
+-        => Filters.Add(new FilterRowViewModel(FilterableColumns.FirstOrDefault()));
++        => Filters.Add(new FilterRowViewModel(FilterableColumns.FirstOrDefault()) { ColumnMeta = _columnMeta });

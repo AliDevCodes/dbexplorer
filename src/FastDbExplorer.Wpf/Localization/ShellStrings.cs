@@ -4,6 +4,7 @@ namespace FastDbExplorer.Wpf.Localization;
 public static class ShellStrings
 {
     public const string NavHome = "خانه";
+    public const string NavConnections = "اتصال‌ها";
     public const string NavExplorer = "کاوشگر";
     public const string NavMap = "نقشه";
     public const string NavMonitoring = "پایش";
@@ -15,7 +16,30 @@ public static class ShellStrings
     public const string ExplorerPromptBody = "پس از اتصال، پایگاه‌داده‌ها و جدول‌ها همین‌جا نمایش داده می‌شوند. نقشه بدون اتصال هم کار می‌کند.";
     public const string MonitoringPromptTitle = "برای پایش داده‌های جدید ابتدا به سرور وصل شوید";
     public const string MonitoringPromptBody = "پایش‌ها تا وقتی به سرور وصل هستید و برنامه باز است، در پس‌زمینه اجرا می‌شوند.";
-    public const string GoToConnect = "رفتن به اتصال";
+    public const string GoToConnect = "رفتن به اتصال‌ها";
+    public const string HomePromptTitle = "محیط داده‌ی شما آماده است";
+    public const string HomePromptBody = "برای شروع یک پروفایل اتصال بسازید یا از پروفایل‌های ذخیره‌شده انتخاب کنید. رمز پایگاه‌داده ذخیره نمی‌شود.";
+
+    public const string ConnectionsTitle = "پروفایل‌های اتصال";
+    public const string ConnectionsSubtitle = "نام‌های دلخواه برای سرورها ذخیره کنید و هر زمان بین آن‌ها جابه‌جا شوید.";
+    public const string SavedProfiles = "ذخیره‌شده‌ها";
+    public const string NoSavedProfiles = "هنوز اتصالی ذخیره نشده است.\nبرای ساخت اولین پروفایل روی + بزنید.";
+    public const string ProfilePasswordStorageNote = "رمز SQL ذخیره نمی‌شود؛ هنگام اتصال دوباره از شما پرسیده خواهد شد.";
+    public const string ProfileDetails = "جزئیات پروفایل";
+    public const string ProfileName = "نام دلخواه";
+    public const string NewProfile = "پروفایل تازه";
+    public const string SaveProfile = "ذخیره‌ی پروفایل";
+    public const string DeleteProfile = "حذف";
+    public const string ConnectProfile = "اتصال";
+    public const string ProfileSaved = "پروفایل ذخیره شد.";
+    public const string ProfileDeleted = "پروفایل حذف شد.";
+    public const string ProfileFieldsRequired = "نام پروفایل و آدرس سرور را وارد کنید؛ برای احراز هویت SQL نام کاربری هم لازم است.";
+    public const string ProfileNameTaken = "این نام قبلاً استفاده شده است؛ نام دیگری انتخاب کنید.";
+    public const string ProfileUnavailable = "این پروفایل دیگر در فهرست اتصال‌ها نیست.";
+    public const string SqlPasswordTitle = "رمز عبور پایگاه‌داده";
+    public const string SqlPasswordPromptNote = "رمز فقط برای این نشست استفاده می‌شود و در پروفایل یا فایل تنظیمات ذخیره نخواهد شد.";
+    public const string PasswordPromptUnavailable = "پنجره‌ی امن ورود رمز در دسترس نیست.";
+    public const string ActiveProfile = "پروفایل فعال";
 
     public const string HomeWelcome = "خوش آمدید";
     public const string HomeSubtitle = "کاوش داده‌ها، نقشه و پایش هشدارها، همه در یک‌جا.";
@@ -25,6 +49,10 @@ public static class ShellStrings
     public const string LatestAlerts = "آخرین هشدارها";
     public const string NoAlertsYet = "هنوز هشداری ثبت نشده است.";
     public const string AllAlerts = "همه‌ی هشدارها";
+
+    public const string Brand1 = "کاوش جدول‌ها و فیلتر روی داده‌ها؛ فقط‌خواندنی و امن.";
+    public const string Brand2 = "نقشه‌ی تعاملی با لایه‌های مختصات؛ بدون نیاز به اتصال.";
+    public const string Brand3 = "پایش ردیف‌های جدید و هشدار لحظه‌ای.";
 
     public const string SearchButton = "جستجو در جدول‌ها، پایش‌ها و بخش‌ها…";
     public const string PaletteHint = "جستجوی جدول، پایش یا بخش…";

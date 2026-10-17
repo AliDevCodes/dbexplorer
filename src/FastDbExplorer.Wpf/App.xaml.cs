@@ -28,6 +28,7 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         DispatcherUnhandledException += (_, args) =>
         {
@@ -48,6 +49,7 @@ public partial class App : System.Windows.Application
             var builder = Host.CreateApplicationBuilder();
             builder.Services.AddSingleton<IDatabaseMetadataService, SqlServerMetadataService>();
             builder.Services.AddSingleton<IConnectionProfileStore>(_ => new JsonConnectionProfileStore());
+            builder.Services.AddSingleton<ICredentialVault>(_ => new DpapiCredentialVault());
             builder.Services.AddSingleton<IMapSourceFactory, MapSourceFactory>();
             builder.Services.AddSingleton<IMapSettingsStore>(_ => new JsonMapSettingsStore());
             builder.Services.AddSingleton<IExcelImportService, ExcelCoordinateImportService>();
@@ -56,6 +58,7 @@ public partial class App : System.Windows.Application
             builder.Services.AddSingleton<IMonitorStore>(_ => new JsonMonitorStore());
             builder.Services.AddSingleton<IWatermarkReader, SqlServerWatermarkReader>();
             builder.Services.AddSingleton<IReportWriter, XlsxReportWriter>();
+            builder.Services.AddSingleton<IQueryReportWriter>(sp => (IQueryReportWriter)sp.GetRequiredService<IReportWriter>());
             builder.Services.AddSingleton<IMonitorCheckService, MonitorCheckService>();
             builder.Services.AddSingleton<IFolderPickerService, FolderPickerService>();
             builder.Services.AddSingleton<IAlertNotifier, AlertNotifier>();
@@ -72,19 +75,21 @@ public partial class App : System.Windows.Application
             splash.Report(3, StartupSteps, SplashStrings.StepInterface);
             _theme = new ThemeService();
             _theme.Start();
-            var main = _host.Services.GetRequiredService<MainWindow>();
 
             var remaining = MinSplashTime - shownFor.Elapsed;
             if (remaining > TimeSpan.Zero) await Task.Delay(remaining);
 
-            // The main window must be shown before the splash closes, otherwise the last-window rule would end the app.
-            MainWindow = main;
-            main.Show();
+            // Explicit shutdown mode lets the splash close before the main window is shown.
             splash.Close();
+
+            var main = _host.Services.GetRequiredService<MainWindow>();
+            MainWindow = main;
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            main.Show();
         }
         catch (Exception ex)
         {
-            splash.Close();
+            if (splash.IsVisible) splash.Close();
             MessageBox.Show(ex.Message, "FastDbExplorer", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }

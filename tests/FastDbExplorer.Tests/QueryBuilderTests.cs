@@ -100,6 +100,44 @@ public class SelectQueryBuilderTests
     }
 
     [Fact]
+    public void Legacy_paging_uses_read_only_row_number_query()
+    {
+        var q = SelectQueryBuilder.Build(Request(keyset: false, offset: 25), Table, supportsOffsetFetch: false);
+
+        Assert.Contains("ROW_NUMBER() OVER (ORDER BY [Id] ASC)", q.Sql);
+        Assert.Contains("WHERE [__fdb_row_number] > @offset AND [__fdb_row_number] <= @offset + @take", q.Sql);
+        Assert.DoesNotContain("OFFSET", q.Sql);
+        Assert.DoesNotContain("FETCH", q.Sql);
+        Assert.Equal(25L, q.Parameters.Single(p => p.Name == "@offset").Value);
+        Assert.Equal(101, q.Parameters.Single(p => p.Name == "@take").Value);
+        ReadOnlySqlGuard.EnsureReadOnly(q.Sql);
+    }
+
+    [Fact]
+    public void Legacy_keyset_page_keeps_keys_and_avoids_offset_fetch()
+    {
+        var q = SelectQueryBuilder.Build(Request(after: [500]), Table, supportsOffsetFetch: false);
+
+        Assert.Contains("([Id] > @p0)", q.Sql);
+        Assert.Contains("SELECT [Id], [Name], [__k0] FROM (", q.Sql);
+        Assert.DoesNotContain("OFFSET", q.Sql);
+        Assert.DoesNotContain("FETCH", q.Sql);
+        Assert.Equal(0L, q.Parameters.Single(p => p.Name == "@offset").Value);
+        ReadOnlySqlGuard.EnsureReadOnly(q.Sql);
+    }
+
+    [Fact]
+    public void Legacy_paging_avoids_generated_alias_collisions()
+    {
+        var columns = Table.Append(new ColumnInfo("__fdb_row_number", "int", 0)).ToArray();
+        var request = Request() with { Columns = ["__fdb_row_number"] };
+        var q = SelectQueryBuilder.Build(request, columns, supportsOffsetFetch: false);
+
+        Assert.Contains("ROW_NUMBER() OVER (ORDER BY [Id] ASC) AS [__fdb_row_number_1]", q.Sql);
+        Assert.Contains("WHERE [__fdb_row_number_1] > @offset", q.Sql);
+    }
+
+    [Fact]
     public void Composite_key_builds_an_or_chain()
     {
         var q = SelectQueryBuilder.Build(Request(order: ["Id", "Code"], after: [5, "B"]), Table);

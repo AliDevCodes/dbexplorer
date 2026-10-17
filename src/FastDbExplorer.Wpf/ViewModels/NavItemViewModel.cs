@@ -3,8 +3,8 @@ using FastDbExplorer.Wpf.Localization;
 
 namespace FastDbExplorer.Wpf.ViewModels;
 
-/// <summary>The sections of the app, in navigation-rail order (Ctrl+1 .. Ctrl+4).</summary>
-public enum AppSection { Home, Explorer, Map, Monitoring }
+/// <summary>The sections of the app, in navigation-rail order (Ctrl+1 .. Ctrl+5).</summary>
+public enum AppSection { Home, Connections, Explorer, Map, Monitoring }
 
 /// <summary>One button of the navigation rail.</summary>
 public sealed partial class NavItemViewModel : ObservableObject

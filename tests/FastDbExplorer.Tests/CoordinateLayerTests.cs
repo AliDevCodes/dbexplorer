@@ -488,6 +488,24 @@ public sealed class JsonCoordinateLayerStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Point_details_remain_transient_when_a_layer_is_persisted()
+    {
+        var id = Guid.NewGuid();
+        var layer = new MapLayer(id, "Query results", "dbo.Sample",
+        [
+            new MapPoint(Guid.NewGuid(), "Row 1", 35.7, 51.4, id,
+                new Dictionary<string, string> { ["Secret-like query text"] = "transient" })
+        ]);
+        var store = NewStore();
+
+        await store.SaveAsync(layer);
+
+        var json = await File.ReadAllTextAsync(Directory.GetFiles(_dir, "*.json").Single());
+        Assert.DoesNotContain("details", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(Assert.Single(Assert.Single(await store.LoadAllAsync()).Points).Details);
+    }
+
+    [Fact]
     public async Task Remove_deletes_the_layer()
     {
         var store = NewStore();

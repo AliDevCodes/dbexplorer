@@ -10,6 +10,11 @@ namespace FastDbExplorer.Application.CoordinateLayers;
 /// </summary>
 public static class CoordinateLayerGeoJson
 {
+    private const int MaxDetailFields = 8;
+    private const int MaxDetailKeyLength = 80;
+    private const int MaxDetailValueLength = 240;
+    private const int MaxDetailTextLength = 1_200;
+
     /// <summary>One Point feature per layer point, with its name (for the label).</summary>
     public static JsonObject Points(MapLayer layer)
     {
@@ -17,6 +22,15 @@ public static class CoordinateLayerGeoJson
         var features = new JsonArray();
         foreach (var point in layer.Points)
         {
+            var properties = new JsonObject { ["id"] = point.Id.ToString(), ["name"] = point.Name };
+            if (LimitedDetails(point.Details) is { Count: > 0 } details)
+            {
+                var detailObject = new JsonObject();
+                foreach (var (key, value) in details)
+                    detailObject[key] = value;
+                properties["details"] = detailObject;
+            }
+
             features.Add(new JsonObject
             {
                 ["type"] = "Feature",
@@ -25,7 +39,7 @@ public static class CoordinateLayerGeoJson
                     ["type"] = "Point",
                     ["coordinates"] = new JsonArray(point.Longitude, point.Latitude)
                 },
-                ["properties"] = new JsonObject { ["id"] = point.Id.ToString(), ["name"] = point.Name }
+                ["properties"] = properties
             });
         }
         return Collection(features);
@@ -70,4 +84,35 @@ public static class CoordinateLayerGeoJson
 
     private static JsonObject Collection(JsonArray features) =>
         new() { ["type"] = "FeatureCollection", ["features"] = features };
+
+    private static IReadOnlyDictionary<string, string>? LimitedDetails(IReadOnlyDictionary<string, string>? details)
+    {
+        if (details is null || details.Count == 0) return null;
+
+        var limited = new Dictionary<string, string>(StringComparer.Ordinal);
+        var textLength = 0;
+        foreach (var (rawKey, rawValue) in details)
+        {
+            if (limited.Count == MaxDetailFields || textLength >= MaxDetailTextLength) break;
+            if (string.IsNullOrWhiteSpace(rawKey)) continue;
+
+            var key = Truncate(rawKey, MaxDetailKeyLength);
+            var remaining = MaxDetailTextLength - textLength - key.Length;
+            if (remaining <= 0) break;
+            var value = Truncate(rawValue ?? "", Math.Min(MaxDetailValueLength, remaining));
+            limited[key] = value;
+            textLength += key.Length + value.Length;
+        }
+
+        return limited;
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (value.Length <= maxLength) return value;
+        var length = Math.Max(0, maxLength - 1);
+        if (length > 0 && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
+            length--;
+        return value[..length] + "…";
+    }
 }
