@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -31,7 +32,18 @@ public partial class MapView : UserControl
 
     // One WebView2 environment for every map view: two environments on the same data folder can conflict.
     private static Task<CoreWebView2Environment>? _sharedEnvironment;
-    private bool _closing; // set while this view is unloading: late WebView2 callbacks must not touch the control
+
+    // Only one map WebView2 is created/alive at a time: the next view waits until the previous one has been released.
+    private static readonly SemaphoreSlim WebGate = new(1, 1);
+
+    // At most one detached map window exists.
+    private static MapWindow? _openWindow;
+
+    private CoreWebView2Environment? _environment;
+    private Task? _initTask;
+    private bool _gateHeld;
+    private bool _released; // ReleaseWebView() has run: this view never touches its WebView2 again
+    private bool _closing;  // set while this view is releasing: late WebView2 callbacks must not touch the control
 
     /// <summary>True for the copy that lives in <see cref="MapWindow"/>: it does not open another window itself.</summary>
     public bool IsDetached { get; init; }
@@ -42,27 +54,19 @@ public partial class MapView : UserControl
         DataContextChanged += (_, e) => { Detach(); _viewModel = e.NewValue as MapViewModel; Attach(); };
         Loaded += async (_, _) =>
         {
+            if (_released || _initTask is not null) return; // never start a second WebView2 for the same view
             Attach();
             if (_viewModel is not null) _ = _viewModel.EnsureCoordinateLayersLoadedAsync();
-            await InitializeWebAsync();
+            _initTask = InitializeWebAsync();
+            await _initTask;
         };
-        Unloaded += (_, _) =>
-        {
-            _closing = true;
-            Detach();
-            if (Web.CoreWebView2 is { } core)
-            {
-                core.WebResourceRequested -= OnTileRequested;
-                core.WebMessageReceived -= OnMessage;
-            }
-            Web.Dispose();
-        };
+        Unloaded += (_, _) => ReleaseWebView();
     }
 
     private void Attach()
     {
         Detach();
-        if (_viewModel is null) return;
+        if (_viewModel is null || _released) return;
         _viewModel.SourceChanged += PushSource;
         _viewModel.LayerToggled += PostLayer;
         _viewModel.FitRequested += PostFit;
@@ -95,19 +99,91 @@ public partial class MapView : UserControl
         _viewModel.PopOutRequested -= OpenDetachedWindow;
     }
 
-    /// <summary>Opens the map in its own window. Both windows share this view model; this copy is collapsed meanwhile.</summary>
+    // ---- WebView2 lifetime -------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Releases this view's WebView2 explicitly and exactly once. Called from <c>Unloaded</c>, from the pop-out command
+    /// (before the Map section is left) and from <see cref="MapWindow"/> while its window handle still exists, so the
+    /// teardown never depends on when WPF raises <c>Unloaded</c>.
+    /// </summary>
+    internal void ReleaseWebView()
+    {
+        if (_released) return;
+        _released = true;
+        _closing = true;
+        Detach();
+
+        // Still being created: disposing in the middle of that is unsafe, so dispose right after it has finished.
+        if (_initTask is { IsCompleted: false } pending)
+        {
+            pending.ContinueWith(_ => DisposeWebView(), CancellationToken.None,
+                TaskContinuationOptions.None, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
+
+        DisposeWebView();
+    }
+
+    private void DisposeWebView()
+    {
+        try
+        {
+            if (Web.CoreWebView2 is { } core)
+            {
+                core.WebResourceRequested -= OnTileRequested;
+                core.WebMessageReceived -= OnMessage;
+            }
+            Web.Dispose();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or COMException)
+        {
+            // The host window already tore it down: nothing left to release.
+        }
+        finally
+        {
+            ReleaseGate();
+        }
+    }
+
+    private void ReleaseGate()
+    {
+        if (!_gateHeld) return;
+        _gateHeld = false;
+        WebGate.Release();
+    }
+
+    /// <summary>Opens the map in its own window. Both windows share this view model; this copy is released meanwhile.</summary>
     /// <remarks>
-    /// Only one WebView2 is alive at a time: the Map section is left first (its WebView is released, the same path as
-    /// switching sections), the window opens after that, and when the window closes the Map section is opened again.
+    /// Only one WebView2 is alive at a time: this view's WebView is released first (from this command, not from a
+    /// visual-tree event), the Map section is left, the window opens after that, and when the window has completely
+    /// closed the Map section is opened again.
     /// </remarks>
     private void OpenDetachedWindow()
     {
         if (_viewModel is null) return;
-        var shell = Window.GetWindow(this)?.DataContext as MainViewModel;
+        if (_openWindow is { IsLoaded: true } existing) { existing.Activate(); return; }
+        if (_openWindow is not null) return; // the window is still opening
+
+        var mainWindow = Window.GetWindow(this);
+        var shell = mainWindow?.DataContext as MainViewModel;
+
+        ReleaseWebView();
         shell?.NavigateCommand.Execute(AppSection.Home);
 
         var window = new MapWindow(_viewModel);
-        window.Closed += (_, _) => shell?.NavigateCommand.Execute(AppSection.Map);
+        _openWindow = window;
+        window.Closed += (_, _) =>
+        {
+            _openWindow = null;
+            if (mainWindow is null || shell is null) return;
+            // Return to the Map section only after the window and its WebView2 are gone, not inside Closed itself,
+            // and not at all while the application is shutting down.
+            mainWindow.Dispatcher.BeginInvoke(() =>
+            {
+                if (mainWindow.IsLoaded && !mainWindow.Dispatcher.HasShutdownStarted)
+                    shell.NavigateCommand.Execute(AppSection.Map);
+            }, DispatcherPriority.Background);
+        };
         Dispatcher.BeginInvoke(() => window.Show(), DispatcherPriority.ApplicationIdle);
     }
 
@@ -122,6 +198,7 @@ public partial class MapView : UserControl
     /// </summary>
     private void UpdateWebVisibility()
     {
+        if (_released) return;
         var hasMap = _viewModel?.HasMap == true;
         var stepAside = !IsDetached && _viewModel?.IsPoppedOut == true;
         Web.Visibility = hasMap && !stepAside ? Visibility.Visible : Visibility.Collapsed;
@@ -130,7 +207,7 @@ public partial class MapView : UserControl
 
     private async Task InitializeWebAsync()
     {
-        if (_viewModel is null) return;
+        if (_viewModel is null || _released) return;
 
         var assets = Path.Combine(AppContext.BaseDirectory, "Assets", "Map");
         if (!File.Exists(Path.Combine(assets, "maplibre-gl.js")))
@@ -139,21 +216,28 @@ public partial class MapView : UserControl
             return;
         }
 
+        // Wait (briefly) until the previous map WebView2 has been released; never longer than 5 s, so it cannot lock up.
+        _gateHeld = await WebGate.WaitAsync(TimeSpan.FromSeconds(5));
+        if (_released) return; // DisposeWebView (queued by ReleaseWebView) frees the gate
+
+        CoreWebView2Environment environment;
         try
         {
             _sharedEnvironment ??= CreateEnvironmentAsync();
-            var environment = await _sharedEnvironment;
-            if (_closing) return; // the window was closed while the runtime was starting
+            environment = await _sharedEnvironment;
+            if (_released) return; // released while the runtime was starting
             await Web.EnsureCoreWebView2Async(environment);
         }
         catch (Exception ex) // UI boundary: a missing runtime must become a readable message, not a crash
         {
             _sharedEnvironment = null; // allow a retry after the problem is fixed
-            _viewModel.ReportWebViewProblem(ex.Message);
+            ReleaseGate();
+            if (!_released) _viewModel?.ReportWebViewProblem(ex.Message);
             return;
         }
 
-        var core = Web.CoreWebView2;
+        if (_released || Web.CoreWebView2 is not { } core) return;
+        _environment = environment;
 #if DEBUG
         core.Settings.AreDevToolsEnabled = true; // F12 for diagnosing map problems (debug builds only)
 #else
@@ -180,12 +264,13 @@ public partial class MapView : UserControl
 
     private async void OnTileRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
-        // Once the view is unloading, its WebView2 is being disposed: a request that is still being answered must not
+        // Once the view is releasing, its WebView2 is being disposed: a request that is still being answered must not
         // touch the request or the deferral any more (answering a disposed WebView2 can take the whole process down).
         if (_closing) return;
-        var deferral = e.GetDeferral();
+        CoreWebView2Deferral? deferral = null;
         try
         {
+            deferral = e.GetDeferral(); // inside the try: on a WebView that is closing this can throw
             var parts = new Uri(e.Request.Uri).AbsolutePath.Trim('/').Split('/');
             var source = _viewModel?.Source;
             if (source is null || parts.Length != 3
@@ -201,18 +286,26 @@ public partial class MapView : UserControl
                 var t = await source.GetTileAsync(z, x, y, CancellationToken.None);
                 return t is { IsGzip: true } ? t with { Data = Gunzip(t.Data), IsGzip = false } : t;
             });
-            if (_closing) return; // the view was closed while the tile was being read
+            if (_closing) return; // the view was released while the tile was being read
             e.Response = tile is null
                 ? Respond(404, "Not Found", null, null)
                 : Respond(200, "OK", tile.Data, tile.ContentType);
         }
         catch (Exception) // event-handler boundary: answer 500 so the page keeps working
         {
-            if (!_closing) e.Response = Respond(500, "Error", null, null);
+            if (!_closing)
+            {
+                try { e.Response = Respond(500, "Error", null, null); }
+                catch (Exception) { /* the WebView went away meanwhile */ }
+            }
         }
         finally
         {
-            if (!_closing) deferral.Complete();
+            if (!_closing)
+            {
+                try { deferral?.Complete(); }
+                catch (Exception) { /* the WebView went away meanwhile */ }
+            }
         }
     }
 
@@ -234,7 +327,8 @@ public partial class MapView : UserControl
             headers += $"\r\nContent-Type: {contentType.Replace("|gzip", "")}";
             if (gzip) headers += "\r\nContent-Encoding: gzip"; // the browser unzips vector tiles for us
         }
-        return Web.CoreWebView2.Environment.CreateWebResourceResponse(
+        // The stored environment, not Web.CoreWebView2: the control may already be disposed.
+        return _environment!.CreateWebResourceResponse(
             new MemoryStream(data ?? []), status, reason, headers);
     }
 
@@ -362,8 +456,12 @@ public partial class MapView : UserControl
 
     private void Post(object message)
     {
-        if (_pageReady && !_closing && Web.CoreWebView2 is not null)
-            Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, Json));
+        if (!_pageReady || _closing || Web.CoreWebView2 is null) return;
+        try { Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, Json)); }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or COMException)
+        {
+            // The WebView was closed between the check and the call.
+        }
     }
 
     private void OnDrop(object sender, DragEventArgs e)

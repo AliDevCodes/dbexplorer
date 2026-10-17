@@ -24,10 +24,11 @@ public partial class MapWindow : Window
         SourceInitialized += (_, _) => ThemeService.SetDarkTitleBar(this, ThemeService.IsDark());
         _viewModel.DockRequested += OnDockRequested;
         _viewModel.SetPoppedOut(true);
-        // Closing (not Closed): the Map section learns the map is back before this window's WebView is torn down.
+        // Closing (not Closed): the WebView2 must be released while this window still has its handle.
         Closing += (_, _) =>
         {
             _viewModel.DockRequested -= OnDockRequested;
+            (Content as MapView)?.ReleaseWebView();
             _viewModel.SetPoppedOut(false);
         };
     }
