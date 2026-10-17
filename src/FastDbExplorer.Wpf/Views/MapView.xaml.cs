@@ -19,7 +19,8 @@ namespace FastDbExplorer.Wpf.Views;
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
 /// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit" /
 /// "coordRename" / "coordSelectClear"); the page answers with "pointHover" and "pointSelect".
-/// "coordUpsert" also carries the marker style (color, iconKey, iconPath); a style change simply sends the layer again.
+/// "coordUpsert" also carries the marker style (color, iconKey, iconPath) and the layer kind/shape (excel, my points, query results);
+/// a style change simply sends the layer again. The map tools overlay (go to / pick / measure) is in <c>MapView.Tools.cs</c>.
 /// The page also reports its camera ("view"); the view model keeps it, because this view is rebuilt every time the
 /// user returns to the map section, and the next "load" message carries the saved camera back.
 /// </summary>
@@ -337,15 +338,18 @@ public partial class MapView : UserControl
         if (_viewModel is null || _closing) return;
         using var doc = JsonDocument.Parse(e.WebMessageAsJson);
         var root = doc.RootElement;
-        switch (root.GetProperty("type").GetString())
+        var type = root.GetProperty("type").GetString();
+        switch (type)
         {
             case "ready":
                 _pageReady = true;
                 _viewModel.SetHoverPoint(null, null);
                 _viewModel.ClearSelectedPoint(); // a fresh page has no highlighted point
+                PushToolsInit();
                 PushSource();
                 PushCoordinateLayers();
                 PushQueryResultLayer();
+                PostToolResult();
                 _viewModel.OnPageReady(); // an action that waited for this page (zoom to a layer chosen in the palette)
                 break;
             case "cursor":
@@ -367,6 +371,9 @@ public partial class MapView : UserControl
                     _viewModel.SetSelectedPoint(name, Text(root, "layer"), root.GetProperty("lat").GetDouble(), root.GetProperty("lng").GetDouble());
                 else
                     _viewModel.ClearSelectedPoint();
+                break;
+            default:
+                HandleToolMessage(type, root); // go to / pick / measure helpers: add or delete a "my points" point, zoom to or remove query results
                 break;
         }
     }
@@ -422,26 +429,39 @@ public partial class MapView : UserControl
     {
         if (_queryResultLayerId is { } previous) PostCoordinateRemove(previous);
         _queryResultLayerId = layer?.Id;
+        PostToolResult(); // the chip over the map: shown while there are results, gone when they are removed
         if (layer is null) return;
         PostCoordinateLayer(layer);
         PostCoordinateZoom(layer.Id);
     }
 
-    private void PostCoordinateLayer(MapLayer layer) => Post(new
+    private void PostCoordinateLayer(MapLayer layer)
     {
-        type = "coordUpsert",
-        id = layer.Id,
-        name = layer.Name,
-        visible = layer.Visibility,
-        radiusMeters = layer.RadiusMeters,
-        // Marker style: the colour is always resolved here (chosen or automatic), the icon travels as SVG path data.
-        color = MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color),
-        iconKey = layer.IconKey,
-        iconPath = MapMarkerCatalog.Find(layer.IconKey)?.PathData,
-        points = CoordinateLayerGeoJson.Points(layer),
-        circles = CoordinateLayerGeoJson.Circles(layer),
-        bounds = CoordinateLayerGeoJson.Bounds(layer)
-    });
+        // The source decides the marker: Excel layers keep their chosen icon/colour (round marker); "my points" use a pin;
+        // Explorer/Monitoring results use an amber diamond with a magnifier, so they are never mistaken for the others.
+        var kind = KindOf(layer);
+        var shape = MapSourceStyles.Shape(kind);
+        var iconPath = MapSourceStyles.FixedGlyph(kind) ?? MapMarkerCatalog.Find(layer.IconKey)?.PathData;
+        if (iconPath is null && shape != "circle") iconPath = MapMarkerCatalog.Find("dot")?.PathData; // pin/diamond always carry a glyph
+        var color = MapSourceStyles.FixedColor(kind) ?? MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color);
+
+        Post(new
+        {
+            type = "coordUpsert",
+            id = layer.Id,
+            name = layer.Name,
+            visible = layer.Visibility,
+            radiusMeters = layer.RadiusMeters,
+            kind = MapSourceStyles.Key(kind),
+            shape,
+            color,
+            iconKey = layer.IconKey,
+            iconPath,
+            points = CoordinateLayerGeoJson.Points(layer),
+            circles = CoordinateLayerGeoJson.Circles(layer),
+            bounds = CoordinateLayerGeoJson.Bounds(layer)
+        });
+    }
 
     private void PostCoordinateVisibility(Guid id, bool visible) => Post(new { type = "coordVisible", id, visible });
 
