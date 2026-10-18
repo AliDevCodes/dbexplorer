@@ -7,37 +7,34 @@ namespace FastDbExplorer.Wpf.Views;
 
 /// <summary>
 /// Host side of the map tools overlay (map-tools.js). The page draws the tools itself; this part sends it the texts and the
-/// state of the Explorer/Monitoring result layer, tells it which kind of layer is which (so each source gets its own marker
-/// shape), and carries out the few things the page cannot do alone: save/delete a "my points" point, zoom to or remove the results.
+/// list of Explorer/Monitoring result sets (one chip each), tells it which kind of layer is which (so each source gets its own
+/// marker shape), and carries out the few things the page cannot do alone: save/delete a "my points" point, zoom to or remove a result set.
 /// </summary>
 public partial class MapView
 {
     private void PushToolsInit() => Post(new { type = "toolsInit", labels = MapToolStrings.Labels });
 
-    /// <summary>Tells the page about the temporary Explorer/Monitoring layer (a chip with zoom and remove), or that there is none.</summary>
-    private void PostToolResult()
+    /// <summary>Sends the current list of result sets (possibly empty); the page shows one chip per set.</summary>
+    private void PostToolResults()
     {
-        if (_viewModel?.QueryResultLayer is { } layer)
-        {
-            Post(new
+        var items = (_viewModel?.QueryResults ?? [])
+            .Select(set => new
             {
-                type = "toolResult",
-                id = layer.Id.ToString(),
-                title = layer.Name,
-                count = layer.Points.Count,
-                color = MapSourceStyles.QueryColor
-            });
-        }
-        else
-        {
-            Post(new { type = "toolResult", id = (string?)null, title = "", count = 0, color = "" });
-        }
+                id = set.Layer.Id.ToString(),
+                title = set.Layer.Name,
+                count = set.Layer.Points.Count,
+                kind = MapSourceStyles.Key(set.Kind),
+                color = MapSourceStyles.FixedColor(set.Kind) ?? MapSourceStyles.ExplorerColor
+            })
+            .ToList();
+        Post(new { type = "toolResults", items });
     }
 
     private MapLayerKind KindOf(MapLayer layer)
     {
         if (layer.Id == MapViewModel.ManualLayerId) return MapLayerKind.Manual;
-        return _viewModel?.QueryResultLayer?.Id == layer.Id ? MapLayerKind.Query : MapLayerKind.Excel;
+        var set = _viewModel?.QueryResults.FirstOrDefault(s => s.Layer.Id == layer.Id);
+        return set?.Kind ?? MapLayerKind.Excel;
     }
 
     /// <summary>Handles the messages of the tools overlay; false = not a tools message.</summary>
@@ -55,10 +52,12 @@ public partial class MapView
                 if (Guid.TryParse(Text(root, "pointId"), out var pointId)) _ = _viewModel.RemoveManualPointAsync(pointId);
                 return true;
             case "toolZoomResult":
-                _viewModel.ZoomToQueryResult();
+                _viewModel.ZoomToQueryResult(Guid.TryParse(Text(root, "id"), out var zoomId) ? zoomId : null);
                 return true;
             case "toolClearResult":
-                _viewModel.ClearQueryResultLayer();
+                // With an id: remove that set. Without one: remove all sets.
+                if (Guid.TryParse(Text(root, "id"), out var removeId)) _viewModel.RemoveQueryResult(removeId);
+                else _viewModel.ClearQueryResultLayer();
                 return true;
             default:
                 return false;

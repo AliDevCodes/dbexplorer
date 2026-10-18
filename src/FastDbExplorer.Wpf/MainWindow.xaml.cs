@@ -10,6 +10,9 @@ namespace FastDbExplorer.Wpf;
 
 public partial class MainWindow : Window
 {
+    // The one map view of the shell: created on the first visit to the Map section, then only hidden/shown.
+    private Views.MapView? _mapView;
+
     public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
@@ -18,11 +21,42 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => UpdateMaximizeState();
         PreviewKeyDown += OnSectionShortcut;
         viewModel.PaletteRequested += OnPaletteRequested;
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.CurrentView)) SyncMapHost();
+        };
         Loaded += async (_, _) =>
         {
             UpdateMaximizeState();
             await viewModel.InitializeAsync();
         };
+    }
+
+    /// <summary>
+    /// Rebuilding the map (a WebView2 plus the map page and its first tiles) on every visit took seconds. The map view is created
+    /// once, when the Map section is first shown, and afterwards only hidden/shown, so coming back is instant. A view whose WebView2
+    /// was released (the map was moved to its own window) is replaced by a fresh one.
+    /// </summary>
+    private void SyncMapHost()
+    {
+        if (DataContext is not MainViewModel viewModel) return;
+
+        if (viewModel.CurrentView is MapViewModel map)
+        {
+            if (_mapView is null || _mapView.IsReleased)
+            {
+                if (_mapView is not null) MapHost.Children.Remove(_mapView);
+                _mapView = new Views.MapView { DataContext = map };
+                MapHost.Children.Add(_mapView);
+            }
+
+            _mapView.Visibility = Visibility.Visible;
+            _mapView.OnShown();
+        }
+        else if (_mapView is not null)
+        {
+            _mapView.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;

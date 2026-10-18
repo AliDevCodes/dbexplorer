@@ -19,7 +19,8 @@ public partial class MapWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
         Title = MapUiStrings.MapWindowTitle(viewModel.FileName);
-        Content = new MapView { IsDetached = true };
+        // The window is left-to-right (title bar buttons on the right, like the main window); the map UI inside stays right-to-left.
+        Content = new MapView { IsDetached = true, FlowDirection = FlowDirection.RightToLeft };
 
         SourceInitialized += (_, _) => ThemeService.SetDarkTitleBar(this, ThemeService.IsDark());
         _viewModel.DockRequested += OnDockRequested;

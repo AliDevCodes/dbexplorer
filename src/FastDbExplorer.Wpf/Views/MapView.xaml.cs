@@ -19,17 +19,18 @@ namespace FastDbExplorer.Wpf.Views;
 /// https://tiles.local/{z}/{x}/{y} are intercepted and answered from the opened map file.
 /// Excel coordinate layers travel as GeoJSON messages ("coordUpsert" / "coordVisible" / "coordRemove" / "coordFit" /
 /// "coordRename" / "coordSelectClear"); the page answers with "pointHover" and "pointSelect".
-/// "coordUpsert" also carries the marker style (color, iconKey, iconPath) and the layer kind/shape (excel, my points, query results);
-/// a style change simply sends the layer again. The map tools overlay (go to / pick / measure) is in <c>MapView.Tools.cs</c>.
-/// The page also reports its camera ("view"); the view model keeps it, because this view is rebuilt every time the
-/// user returns to the map section, and the next "load" message carries the saved camera back.
+/// "coordUpsert" also carries the marker style (color, iconKey, iconPath) and the layer kind/shape (excel, my points, Explorer
+/// results, Monitoring results); a style change simply sends the layer again. The map tools overlay (go to / pick / measure /
+/// result sets) is in <c>MapView.Tools.cs</c>.
+/// The shell keeps one map view alive and only hides/shows it, so returning to the Map section is instant; the page also reports
+/// its camera ("view"), which is sent back with the next "load" (for example after a theme change or a re-created page).
 /// </summary>
 public partial class MapView : UserControl
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private MapViewModel? _viewModel;
     private bool _pageReady;
-    private Guid? _queryResultLayerId;
+    private bool _pageDark; // the theme the map style was built for
 
     // One WebView2 environment for every map view: two environments on the same data folder can conflict.
     private static Task<CoreWebView2Environment>? _sharedEnvironment;
@@ -48,6 +49,9 @@ public partial class MapView : UserControl
 
     /// <summary>True for the copy that lives in <see cref="MapWindow"/>: it does not open another window itself.</summary>
     public bool IsDetached { get; init; }
+
+    /// <summary>True once this view's WebView2 has been released; the shell then creates a fresh view instead of reusing this one.</summary>
+    internal bool IsReleased => _released;
 
     public MapView()
     {
@@ -77,7 +81,8 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerZoomRequested += PostCoordinateZoom;
         _viewModel.CoordinateLayerRenamed += PostCoordinateRename;
         _viewModel.SelectionClearRequested += PostSelectionClear;
-        _viewModel.QueryResultLayerChanged += PostQueryResultLayer;
+        _viewModel.QueryResultAdded += PostQueryResultAdded;
+        _viewModel.QueryResultRemoved += PostQueryResultRemoved;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         if (!IsDetached) _viewModel.PopOutRequested += OpenDetachedWindow;
         UpdateWebVisibility();
@@ -95,7 +100,8 @@ public partial class MapView : UserControl
         _viewModel.CoordinateLayerZoomRequested -= PostCoordinateZoom;
         _viewModel.CoordinateLayerRenamed -= PostCoordinateRename;
         _viewModel.SelectionClearRequested -= PostSelectionClear;
-        _viewModel.QueryResultLayerChanged -= PostQueryResultLayer;
+        _viewModel.QueryResultAdded -= PostQueryResultAdded;
+        _viewModel.QueryResultRemoved -= PostQueryResultRemoved;
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.PopOutRequested -= OpenDetachedWindow;
     }
@@ -112,6 +118,7 @@ public partial class MapView : UserControl
         if (_released) return;
         _released = true;
         _closing = true;
+        _viewModel?.SetPageReady(false);
         Detach();
 
         // Still being created: disposing in the middle of that is unsafe, so dispose right after it has finished.
@@ -153,11 +160,17 @@ public partial class MapView : UserControl
         WebGate.Release();
     }
 
+    /// <summary>The shell shows this (already running) view again. A theme change in the meantime needs the map style rebuilt.</summary>
+    internal void OnShown()
+    {
+        if (_pageReady && !_released && _viewModel?.Source is not null && ThemeService.IsDark() != _pageDark) PushSource();
+    }
+
     /// <summary>Opens the map in its own window. Both windows share this view model; this copy is released meanwhile.</summary>
     /// <remarks>
     /// Only one WebView2 is alive at a time: this view's WebView is released first (from this command, not from a
     /// visual-tree event), the Map section is left, the window opens after that, and when the window has completely
-    /// closed the Map section is opened again.
+    /// closed the Map section is opened again (the shell then creates a fresh map view).
     /// </remarks>
     private void OpenDetachedWindow()
     {
@@ -343,13 +356,14 @@ public partial class MapView : UserControl
         {
             case "ready":
                 _pageReady = true;
+                _viewModel.SetPageReady(true);
                 _viewModel.SetHoverPoint(null, null);
                 _viewModel.ClearSelectedPoint(); // a fresh page has no highlighted point
                 PushToolsInit();
                 PushSource();
                 PushCoordinateLayers();
-                PushQueryResultLayer();
-                PostToolResult();
+                PushQueryResultLayers();
+                PostToolResults();
                 _viewModel.OnPageReady(); // an action that waited for this page (zoom to a layer chosen in the palette)
                 break;
             case "cursor":
@@ -373,7 +387,7 @@ public partial class MapView : UserControl
                     _viewModel.ClearSelectedPoint();
                 break;
             default:
-                HandleToolMessage(type, root); // go to / pick / measure helpers: add or delete a "my points" point, zoom to or remove query results
+                HandleToolMessage(type, root); // go to / pick / measure helpers: add or delete a "my points" point, zoom to or remove result sets
                 break;
         }
     }
@@ -386,10 +400,12 @@ public partial class MapView : UserControl
         if (!_pageReady || _viewModel?.Source is not { } source) return;
         var info = source.Info;
         var saved = _viewModel.LastView;
+        var dark = ThemeService.IsDark();
+        _pageDark = dark;
         Post(new
         {
             type = "load",
-            dark = ThemeService.IsDark(),
+            dark,
             // null for a newly opened file (the page starts on Iran); otherwise the camera the user left the map with.
             view = (saved is { } camera) ? new { lng = camera.Lng, lat = camera.Lat, zoom = camera.Zoom } : null,
             info = new
@@ -420,29 +436,37 @@ public partial class MapView : UserControl
         foreach (var item in _viewModel.CoordinateLayers) PostCoordinateLayer(item.Layer);
     }
 
-    private void PushQueryResultLayer()
+    // ---- Explorer / Monitoring result sets ---------------------------------------------------------------------
+
+    /// <summary>Sends every result set (without moving the camera); used when a page starts.</summary>
+    private void PushQueryResultLayers()
     {
-        if (_viewModel?.QueryResultLayer is { } layer) PostQueryResultLayer(layer);
+        if (_viewModel is null) return;
+        foreach (var set in _viewModel.QueryResults) PostCoordinateLayer(set.Layer);
     }
 
-    private void PostQueryResultLayer(MapLayer? layer)
+    /// <summary>A new set was sent from the Explorer or Monitoring: draw it, zoom to it, update the chips over the map.</summary>
+    private void PostQueryResultAdded(QueryResultSet set)
     {
-        if (_queryResultLayerId is { } previous) PostCoordinateRemove(previous);
-        _queryResultLayerId = layer?.Id;
-        PostToolResult(); // the chip over the map: shown while there are results, gone when they are removed
-        if (layer is null) return;
-        PostCoordinateLayer(layer);
-        PostCoordinateZoom(layer.Id);
+        PostCoordinateLayer(set.Layer);
+        PostCoordinateZoom(set.Layer.Id);
+        PostToolResults();
+    }
+
+    private void PostQueryResultRemoved(Guid layerId)
+    {
+        PostCoordinateRemove(layerId);
+        PostToolResults();
     }
 
     private void PostCoordinateLayer(MapLayer layer)
     {
         // The source decides the marker: Excel layers keep their chosen icon/colour (round marker); "my points" use a pin;
-        // Explorer/Monitoring results use an amber diamond with a magnifier, so they are never mistaken for the others.
+        // Explorer results are amber diamonds with a magnifier, Monitoring results rose squares with a bell.
         var kind = KindOf(layer);
         var shape = MapSourceStyles.Shape(kind);
         var iconPath = MapSourceStyles.FixedGlyph(kind) ?? MapMarkerCatalog.Find(layer.IconKey)?.PathData;
-        if (iconPath is null && shape != "circle") iconPath = MapMarkerCatalog.Find("dot")?.PathData; // pin/diamond always carry a glyph
+        if (iconPath is null && shape != "circle") iconPath = MapMarkerCatalog.Find("dot")?.PathData; // pin/diamond/square always carry a glyph
         var color = MapSourceStyles.FixedColor(kind) ?? MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color);
 
         Post(new

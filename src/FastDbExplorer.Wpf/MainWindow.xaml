@@ -16,7 +16,9 @@
     <DataTemplate DataType="{x:Type vm:HomeViewModel}"><views:HomeView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ConnectPromptViewModel}"><views:ConnectPromptView /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:ExplorerViewModel}"><views:ExplorerView /></DataTemplate>
-    <DataTemplate DataType="{x:Type vm:MapViewModel}"><views:MapView /></DataTemplate>
+    <!-- The map is NOT created by this template: one MapView lives in MapHost below and is only hidden/shown (see MainWindow.xaml.cs),
+         so coming back to the Map section does not rebuild the WebView2 page. -->
+    <DataTemplate DataType="{x:Type vm:MapViewModel}"><Border /></DataTemplate>
     <DataTemplate DataType="{x:Type vm:MonitoringViewModel}"><views:MonitoringView /></DataTemplate>
 
     <!-- Flat caption button; the hover colour comes from BorderBrush so the close button can use red -->
@@ -195,7 +197,11 @@
           </Grid>
         </Border>
 
-        <ContentControl Grid.Row="1" Content="{Binding CurrentView}" IsTabStop="False" />
+        <!-- Current section. The map is the exception: its view is created on the first visit, then only hidden/shown. -->
+        <Grid Grid.Row="1">
+          <ContentControl Content="{Binding CurrentView}" IsTabStop="False" />
+          <Grid x:Name="MapHost" />
+        </Grid>
       </Grid>
     </Grid>
   </Grid>
