@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.ViewModels;
 
 namespace FastDbExplorer.Wpf.Views;
 
