@@ -1,6 +1,8 @@
+using FastDbExplorer.Domain;
+
 namespace FastDbExplorer.Wpf.Localization;
 
-/// <summary>Texts of the map tools (go to coordinates, pick coordinates, measure distance, my points). The page receives them as "toolsInit".</summary>
+/// <summary>Texts of the map tools (go to coordinates, pick coordinates, measure distance, my points, result sets). The page receives them as "toolsInit".</summary>
 public static class MapToolStrings
 {
     public const string ManualLayerName = "نقاط من";
@@ -10,9 +12,18 @@ public static class MapToolStrings
 
     public static string ManualPointAdded(string name) => $"نقطهٔ «{name}» به «نقاط من» اضافه شد.";
 
+    /// <summary>Name of a result set sent to the map: where it came from, which table, and a number when the same table was sent again with other rows.</summary>
+    public static string ResultLayerName(MapLayerKind kind, string table, int ordinal)
+    {
+        var source = kind == MapLayerKind.Monitoring ? ShellStrings.NavMonitoring : ShellStrings.NavExplorer;
+        var name = $"{source} · {table}";
+        return ordinal > 1 ? $"{name} ({ordinal})" : name;
+    }
+
     public static IReadOnlyDictionary<string, string> Labels { get; } = new Dictionary<string, string>
     {
-        ["placeholder"] = "عرض و طول جغرافیایی، مثلاً 35.7219, 51.3347",
+        ["placeholder"] = "عرض و طول جغرافیایی را وارد کنید",
+        ["example"] = "نمونه: 35.7219, 51.3347",
         ["go"] = "رفتن به مختصات",
         ["pick"] = "دریافت مختصات از روی نقشه",
         ["measure"] = "اندازه‌گیری فاصله",
@@ -40,6 +51,7 @@ public static class MapToolStrings
         ["added"] = "نقطه به «نقاط من» اضافه شد",
         ["zoom"] = "نمایش روی نقشه",
         ["remove"] = "حذف از نقشه",
+        ["removeAll"] = "حذف همه نتایج",
         ["deletePoint"] = "حذف این نقطه",
         ["manualPoint"] = "نقطهٔ دستی",
         ["km"] = "کیلومتر",

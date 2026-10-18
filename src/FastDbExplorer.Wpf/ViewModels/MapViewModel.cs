@@ -19,12 +19,16 @@ public sealed partial class MapLayerItem(string name, Action<string, bool> onCha
     partial void OnIsVisibleChanged(bool value) => onChanged(name, value);
 }
 
+/// <summary>One set of rows sent to the map from the Explorer or from Monitoring. Sets are independent and stay until the user removes them.</summary>
+public sealed record QueryResultSet(MapLayer Layer, MapLayerKind Kind);
+
 /// <summary>
 /// Map workspace: opens a map file, owns the opened source, and relays commands to the page through events
 /// (the view talks to the WebView2/MapLibre page; this class never touches UI controls).
 /// Phase 2 adds the Excel coordinate layers: import, list, visibility, radius (metres), rename, delete, refresh, zoom,
 /// and a per-layer marker icon + colour. It also remembers the last opened map (reopened at start-up) and shows the
-/// point the mouse is over / the selected one.
+/// point the mouse is over / the selected one. Rows sent from the Explorer or Monitoring are kept as separate, temporary
+/// result sets (<see cref="QueryResults"/>), each removable on its own.
 /// </summary>
 public sealed partial class MapViewModel : ObservableObject
 {
@@ -34,6 +38,7 @@ public sealed partial class MapViewModel : ObservableObject
     private readonly ICoordinateLayerStore _store;
     private readonly IMapSettingsStore _settings;
     private readonly SemaphoreSlim _storeGate = new(1, 1); // one store operation at a time (the store writes whole files)
+    private readonly List<QueryResultSet> _queryResults = [];
     private bool _coordinateLayersLoaded;
 
     public MapViewModel(
@@ -69,7 +74,12 @@ public sealed partial class MapViewModel : ObservableObject
     public event Action<Guid>? CoordinateLayerRemoved;
     public event Action<Guid>? CoordinateLayerZoomRequested;
     public event Action<Guid, string>? CoordinateLayerRenamed;
-    public event Action<MapLayer?>? QueryResultLayerChanged;
+
+    /// <summary>A new set of Explorer/Monitoring rows was added to the map (the view draws it and zooms to it).</summary>
+    public event Action<QueryResultSet>? QueryResultAdded;
+
+    /// <summary>A result set was removed from the map.</summary>
+    public event Action<Guid>? QueryResultRemoved;
 
     /// <summary>The user asked to drop the highlighted point; the view tells the page.</summary>
     public event Action? SelectionClearRequested;
@@ -81,11 +91,17 @@ public sealed partial class MapViewModel : ObservableObject
 
     public ObservableCollection<CoordinateLayerItem> CoordinateLayers { get; } = [];
 
-    public MapLayer? QueryResultLayer { get; private set; }
-    public bool HasQueryResultLayer => QueryResultLayer is not null;
-    public string QueryResultLayerSummary => QueryResultLayer is { } layer
-        ? CoordinateStrings.QueryResultsSummary(layer.Points.Count)
-        : "";
+    /// <summary>All result sets currently on the map, oldest first.</summary>
+    public IReadOnlyList<QueryResultSet> QueryResults => _queryResults;
+
+    /// <summary>The newest result set's layer (null when there is none).</summary>
+    public MapLayer? QueryResultLayer => _queryResults.Count > 0 ? _queryResults[^1].Layer : null;
+
+    public bool HasQueryResultLayer => _queryResults.Count > 0;
+
+    public string QueryResultLayerSummary => _queryResults.Count == 0
+        ? ""
+        : CoordinateStrings.QueryResultsSummary(_queryResults.Sum(set => set.Layer.Points.Count));
 
     [ObservableProperty] private bool _hasMap;
     [ObservableProperty] private bool _isLoading;
@@ -304,26 +320,66 @@ public sealed partial class MapViewModel : ObservableObject
         SelectedPointCoords = "";
     }
 
-    /// <summary>Replaces the non-persistent layer made from selected query rows.</summary>
-    public void ShowQueryResultLayer(string tableName, IReadOnlyList<QueryMapPoint> points)
+    // ---- Rows sent from the Explorer / Monitoring ---------------------------------------------------------------
+
+    /// <summary>
+    /// Adds the rows as a NEW result set. Earlier sets (from the Explorer or from Monitoring) stay on the map until the user
+    /// removes them. The very same rows from the same table are not added twice: the existing set is only shown again.
+    /// </summary>
+    public void ShowQueryResultLayer(string tableName, IReadOnlyList<QueryMapPoint> points, MapLayerKind kind = MapLayerKind.Explorer)
     {
+        var source = kind == MapLayerKind.Monitoring ? MapLayerKind.Monitoring : MapLayerKind.Explorer;
+
+        var duplicate = _queryResults.FirstOrDefault(set =>
+            set.Kind == source && set.Layer.FileName == tableName && SamePoints(set.Layer, points));
+        if (duplicate is not null)
+        {
+            CoordinateLayerZoomRequested?.Invoke(duplicate.Layer.Id);
+            return;
+        }
+
         var id = Guid.NewGuid();
         var mapPoints = points.Select((point, index) =>
             new MapPoint(Guid.NewGuid(), string.IsNullOrWhiteSpace(point.Name) ? $"Row {index + 1}" : point.Name,
                 point.Latitude, point.Longitude, id, point.Details));
-        QueryResultLayer = new MapLayer(id, CoordinateStrings.QueryResultLayerName + " · " + tableName, tableName, mapPoints);
-        OnPropertyChanged(nameof(HasQueryResultLayer));
-        OnPropertyChanged(nameof(QueryResultLayerSummary));
-        QueryResultLayerChanged?.Invoke(QueryResultLayer);
+        var sameTable = _queryResults.Count(set => set.Kind == source && set.Layer.FileName == tableName);
+        var layer = new MapLayer(id, MapToolStrings.ResultLayerName(source, tableName, sameTable + 1), tableName, mapPoints);
+
+        var added = new QueryResultSet(layer, source);
+        _queryResults.Add(added);
+        NotifyQueryResultsChanged();
+        QueryResultAdded?.Invoke(added);
     }
 
+    /// <summary>Removes one result set from the map.</summary>
+    public void RemoveQueryResult(Guid layerId)
+    {
+        var set = _queryResults.FirstOrDefault(s => s.Layer.Id == layerId);
+        if (set is null) return;
+        _queryResults.Remove(set);
+        NotifyQueryResultsChanged();
+        QueryResultRemoved?.Invoke(layerId);
+    }
+
+    /// <summary>Removes every result set (also called when the session ends).</summary>
     public void ClearQueryResultLayer()
     {
-        if (QueryResultLayer is null) return;
-        QueryResultLayer = null;
+        foreach (var set in _queryResults.ToList()) RemoveQueryResult(set.Layer.Id);
+    }
+
+    private void NotifyQueryResultsChanged()
+    {
         OnPropertyChanged(nameof(HasQueryResultLayer));
         OnPropertyChanged(nameof(QueryResultLayerSummary));
-        QueryResultLayerChanged?.Invoke(null);
+        OnPropertyChanged(nameof(QueryResultLayer));
+    }
+
+    private static bool SamePoints(MapLayer layer, IReadOnlyList<QueryMapPoint> points)
+    {
+        if (layer.Points.Count != points.Count) return false;
+        for (var i = 0; i < points.Count; i++)
+            if (layer.Points[i].Latitude != points[i].Latitude || layer.Points[i].Longitude != points[i].Longitude) return false;
+        return true;
     }
 
     [RelayCommand]

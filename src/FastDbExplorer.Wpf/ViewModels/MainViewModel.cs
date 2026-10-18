@@ -190,15 +190,16 @@ public sealed partial class MainViewModel : ObservableObject
         ActiveProfile = profile;
 
         var explorer = new ExplorerViewModel(_metadata, settings, databases, _dialogs, _queryReportWriter);
+        // Each send adds its own result set (marked with where it came from); earlier sets stay until the user removes them.
         explorer.ShowSelectedRowsOnMapRequested += (tableName, points) =>
         {
-            _map.ShowQueryResultLayer(tableName, points);
+            _map.ShowQueryResultLayer(tableName, points, MapLayerKind.Explorer);
             Navigate(AppSection.Map);
         };
         var monitoring = _monitoringFactory.Create(settings, databases);
         monitoring.ShowSelectedRowsOnMapRequested += (tableName, points) =>
         {
-            _map.ShowQueryResultLayer(tableName, points);
+            _map.ShowQueryResultLayer(tableName, points, MapLayerKind.Monitoring);
             Navigate(AppSection.Map);
         };
         _monitoring = monitoring;
@@ -243,7 +244,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void EndSession()
     {
         Explorer?.Shutdown();
-        _map.ClearQueryResultLayer();
+        _map.ClearQueryResultLayer(); // the rows belong to the session that ends here: every result set leaves the map
         if (_monitoring is not null)
         {
             if (_alertsHandler is not null) _monitoring.Alerts.CollectionChanged -= _alertsHandler;

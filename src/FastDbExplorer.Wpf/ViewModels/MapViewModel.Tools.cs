@@ -5,7 +5,7 @@ namespace FastDbExplorer.Wpf.ViewModels;
 
 /// <summary>
 /// Map tools on the host side: the persistent "my points" layer (points the user adds by typing or picking coordinates)
-/// and the actions on the temporary Explorer/Monitoring result layer. The tools themselves (go to, pick, measure) run in the
+/// and the actions on the temporary Explorer/Monitoring result sets. The tools themselves (go to, pick, measure) run in the
 /// map page; they only report to the host when something must be saved or removed.
 /// </summary>
 public sealed partial class MapViewModel
@@ -13,10 +13,13 @@ public sealed partial class MapViewModel
     /// <summary>Fixed id of the one "my points" layer, so it is found again after a restart.</summary>
     public static readonly Guid ManualLayerId = new("6d616e75-616c-4c61-7965-722d6d79706f");
 
-    /// <summary>Zooms the map to the points sent from the Explorer or Monitoring.</summary>
-    public void ZoomToQueryResult()
+    /// <summary>Zooms the map to one result set (null = the newest one).</summary>
+    public void ZoomToQueryResult(Guid? layerId = null)
     {
-        if (QueryResultLayer is { } layer) CoordinateLayerZoomRequested?.Invoke(layer.Id);
+        var layer = layerId is { } wanted
+            ? _queryResults.FirstOrDefault(set => set.Layer.Id == wanted)?.Layer
+            : QueryResultLayer;
+        if (layer is not null) CoordinateLayerZoomRequested?.Invoke(layer.Id);
     }
 
     /// <summary>Adds a point to the "my points" layer (created on first use) and saves it.</summary>
