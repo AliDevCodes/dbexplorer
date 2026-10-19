@@ -54,6 +54,9 @@ public partial class MonitoringView : UserControl
 
     private void OnPreviewSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _viewModel?.SetSelectedResultRows(PreviewGrid.SelectedItems.OfType<MonitoringResultRow>().ToList());
+        if (_viewModel is null) return;
+        var rows = PreviewGrid.SelectedItems.OfType<MonitoringResultRow>().ToList();
+        _viewModel.SetSelectedResultRows(rows);
+        _viewModel.UpdateSelectedResultRowCount(rows.Count); // the shared map panel shows how many rows are selected
     }
 }

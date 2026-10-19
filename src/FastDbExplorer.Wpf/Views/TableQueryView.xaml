@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="clr-namespace:FastDbExplorer.Wpf.Localization"
-             xmlns:ctrl="clr-namespace:FastDbExplorer.Wpf.Controls">
+             xmlns:ctrl="clr-namespace:FastDbExplorer.Wpf.Controls"
+             xmlns:views="clr-namespace:FastDbExplorer.Wpf.Views">
   <UserControl.Resources>
     <Style TargetType="ToolTip">
       <Setter Property="MaxWidth" Value="560" />
@@ -219,40 +220,19 @@
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
           <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,8,10,4">
             <Button Content="{x:Static l:Strings.ExportExcel}" Command="{Binding ExportExcelCommand}" />
-            <TextBlock Text="{Binding SelectedRowCount, StringFormat={}{0:N0} ردیف انتخاب‌شده}"
-                       Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="12,0,0,0" />
           </StackPanel>
-          <StackPanel Grid.Row="1" Margin="10,4,10,8" Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
-            <WrapPanel VerticalAlignment="Center" HorizontalAlignment="Right">
-              <TextBlock Text="{x:Static l:Strings.LatitudeColumn}" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,6,0" />
-              <ComboBox Width="150" FlowDirection="LeftToRight" ItemsSource="{Binding CoordinateColumns}" SelectedItem="{Binding LatitudeColumn}" />
-              <TextBlock Text="{x:Static l:Strings.LongitudeColumn}" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="12,0,6,0" />
-              <ComboBox Width="150" FlowDirection="LeftToRight" ItemsSource="{Binding CoordinateColumns}" SelectedItem="{Binding LongitudeColumn}" />
-              <Button Content="{x:Static l:Strings.ShowSelectedOnMap}" Command="{Binding ShowSelectedOnMapCommand}" Margin="8,0,0,0" />
-            </WrapPanel>
-            <Expander HorizontalAlignment="Right" Margin="0,8,0,0">
-              <Expander.Header>
-                <StackPanel Orientation="Horizontal">
-                  <TextBlock Text="{x:Static l:Strings.MapTooltipColumns}" />
-                  <TextBlock Text="{Binding MapDetailColumnCount, StringFormat={} · {0}/8}" Style="{StaticResource Muted}" Margin="6,0,0,0" />
-                </StackPanel>
-              </Expander.Header>
-              <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
-                      CornerRadius="10" Padding="10" MaxWidth="540" MaxHeight="150">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                  <ItemsControl ItemsSource="{Binding MapDetailColumns}" IsTabStop="False">
-                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                  FlowDirection="LeftToRight" Margin="0,0,14,6" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </ScrollViewer>
-              </Border>
-            </Expander>
-          </StackPanel>
+
+          <!-- The same "show on the map" panel as Monitoring -->
+          <views:MapSendPanel Grid.Row="1" Margin="10,4,10,8"
+                              Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}"
+                              Columns="{Binding CoordinateColumns}"
+                              LatitudeColumn="{Binding LatitudeColumn, Mode=TwoWay}"
+                              LongitudeColumn="{Binding LongitudeColumn, Mode=TwoWay}"
+                              DetailColumns="{Binding MapDetailColumns}"
+                              DetailCount="{Binding MapDetailColumnCount}"
+                              SelectedCount="{Binding SelectedRowCount}"
+                              SendCommand="{Binding ShowSelectedOnMapCommand}" />
+
           <DataGrid x:Name="ResultGrid" Grid.Row="2" FlowDirection="LeftToRight" ItemsSource="{Binding Rows}"
                     SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="ResultGrid_SelectionChanged"
                     MouseDoubleClick="ResultGrid_MouseDoubleClick"
