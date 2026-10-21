@@ -2,13 +2,13 @@ using System.Globalization;
 
 namespace FastDbExplorer.Wpf.Localization;
 
-/// <summary>All user-facing text of the monitoring (پایش و هشدار) screens.</summary>
+/// <summary>All user-facing text of the monitoring (مانیتورینگ و هشدار) screens.</summary>
 public static class MonitoringStrings
 {
-    public const string Title = "پایش و هشدار";
+    public const string Title = "مانیتورینگ و هشدار";
     public const string Subtitle = "شرط‌ها را تعریف کنید؛ برنامه در بازه‌های زمانی انتخابی، فقط رکوردهای جدید را (به‌صورت فقط‌خواندنی) بررسی می‌کند.";
-    public const string OpenMonitoring = "پایش";
-    public const string NewMonitor = "پایش جدید";
+    public const string OpenMonitoring = "مانیتورینگ";
+    public const string NewMonitor = "مانیتور جدید";
     public const string Edit = "ویرایش";
     public const string Delete = "حذف";
     public const string ConfirmDeleteQuestion = "حذف شود؟";
@@ -16,7 +16,7 @@ public static class MonitoringStrings
     public const string No = "خیر";
     public const string CheckNow = "بررسی اکنون";
     public const string Enabled = "فعال";
-    public const string NoMonitors = "هنوز پایشی تعریف نشده است. با «پایش جدید» شروع کنید.";
+    public const string NoMonitors = "هنوز مانیتوری تعریف نشده است. با «مانیتور جدید» شروع کنید.";
     public const string Alerts = "هشدارها";
     public const string NoAlerts = "هنوز هشداری ثبت نشده است.";
     public const string OpenReport = "باز کردن گزارش";
@@ -42,9 +42,9 @@ public static class MonitoringStrings
     public const string Checking = "در حال بررسی…";
     public const string ErrorPrefix = "⚠ ";
 
-    public const string EditorTitleNew = "پایش جدید";
-    public const string EditorTitleEdit = "ویرایش پایش";
-    public const string Name = "نام پایش";
+    public const string EditorTitleNew = "مانیتور جدید";
+    public const string EditorTitleEdit = "ویرایش مانیتور";
+    public const string Name = "نام مانیتور";
     public const string Database = "پایگاه‌داده";
     public const string Table = "جدول";
     public const string Target = "جدول موردنظر";
@@ -60,7 +60,7 @@ public static class MonitoringStrings
     public const string Save = "ذخیره";
     public const string PickFolderTitle = "انتخاب پوشه‌ی ذخیره‌ی گزارش";
 
-    public const string ErrName = "برای پایش یک نام وارد کنید.";
+    public const string ErrName = "برای مانیتور یک نام وارد کنید.";
     public const string ErrTarget = "پایگاه‌داده و جدول را انتخاب کنید.";
     public const string ErrWatermark = "ستون تشخیص رکورد جدید را انتخاب کنید (ستون عددی یا تاریخ).";
     public const string ErrNoConditions = "حداقل یک شرط تعریف کنید.";
@@ -94,7 +94,7 @@ public static class MonitoringStrings
 
     public static string ToastTitle(string monitorName) => $"هشدار: {monitorName}";
 
-    public static string ToastErrorTitle(string monitorName) => $"خطا در پایش: {monitorName}";
+    public static string ToastErrorTitle(string monitorName) => $"خطا در مانیتور: {monitorName}";
 
     public static string CheckFailed(string reason) => $"بررسی ناموفق بود: {reason}";
 }

@@ -7,14 +7,15 @@ using FastDbExplorer.Application.Abstractions;
 namespace FastDbExplorer.Infrastructure.Monitoring;
 
 /// <summary>
-/// Writes a real .xlsx file (a small SpreadsheetML package) with no third-party library.
-/// One sheet "Records": bold header row, frozen, right-to-left view. Text is stored as inline strings.
+/// Writes report files. A normal-sized result becomes a real .xlsx (a small SpreadsheetML package) with no third-party library:
+/// one sheet "Records", bold header row, frozen, right-to-left view, text stored as inline strings.
+/// A result too big to open comfortably in Excel (see <see cref="ExportLimits"/>) is written as CSV instead, split into several
+/// files when needed (<see cref="CsvPartsWriter"/>), so no single file becomes heavy.
 /// </summary>
 public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
 {
     private const string Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
     private const int MaxCellChars = 32_000;
-    private const int MaxExcelRows = 1_048_576;
     private const long MaxExactInteger = 999_999_999_999_999; // Excel keeps 15 digits; longer integers are written as text
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private static readonly UTF8Encoding Utf8 = new(false);
@@ -49,22 +50,86 @@ public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
         + "<cellXfs count='2'><xf numFmtId='0' fontId='0' fillId='0' borderId='0' xfId='0'/><xf numFmtId='0' fontId='1' fillId='0' borderId='0' xfId='0' applyFont='1'/></cellXfs>"
         + "<cellStyles count='1'><cellStyle name='Normal' xfId='0' builtinId='0'/></cellStyles></styleSheet>";
 
+    private readonly ExportLimits _limits;
+
+    public XlsxReportWriter(ExportLimits? limits = null) => _limits = limits ?? ExportLimits.Default;
+
     public Task<string> WriteAsync(
         string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns,
         IReadOnlyList<object?[]> rows, string folder, CancellationToken ct)
-        => Task.Run(() => Write(monitorName, checkedAtUtc, columns, rows, folder, ct), ct);
+        => Task.Run(() => WriteReportAsync(monitorName, checkedAtUtc, columns, rows, folder, ct), ct);
 
-    public Task WriteQueryAsync(
+    public Task<QueryExportResult> WriteQueryAsync(
         IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct)
         => Task.Run(() => WriteQueryCoreAsync(columns, rows, path, ct), ct);
 
-    private static async Task WriteQueryCoreAsync(
+    /// <summary>
+    /// Reads rows until the workbook limit is passed. A result that ends before that is written as .xlsx from what was read
+    /// (typed cells, so numbers stay numbers and text such as phone numbers stays text). A bigger one switches to CSV: the rows
+    /// already read go first, the rest is streamed, so memory stays bounded by the workbook limit.
+    /// </summary>
+    private async Task<QueryExportResult> WriteQueryCoreAsync(
         IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var fullPath = Path.GetFullPath(path);
         var folder = Path.GetDirectoryName(fullPath)!;
         Directory.CreateDirectory(folder);
+
+        var maxRows = _limits.MaxWorkbookRows(columns.Count);
+        var buffer = new List<object?[]>();
+        await using var enumerator = rows.GetAsyncEnumerator(ct);
+        var tooBig = false;
+        while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+        {
+            buffer.Add(enumerator.Current);
+            if (buffer.Count > maxRows)
+            {
+                tooBig = true;
+                break;
+            }
+        }
+
+        if (!tooBig)
+        {
+            WritePackage(fullPath, sheet => WriteSheet(sheet, columns, buffer, ct), overwrite: true);
+            return new QueryExportResult(QueryExportFormat.Xlsx, [fullPath], buffer.Count);
+        }
+
+        await using var csv = new CsvPartsWriter(folder, Path.GetFileNameWithoutExtension(fullPath), columns, _limits);
+        foreach (var row in buffer) await csv.WriteRowAsync(row, ct).ConfigureAwait(false);
+        buffer.Clear();
+        while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+            await csv.WriteRowAsync(enumerator.Current, ct).ConfigureAwait(false);
+
+        var files = await csv.CompleteAsync(ct).ConfigureAwait(false);
+        return new QueryExportResult(QueryExportFormat.Csv, files, csv.RowCount);
+    }
+
+    private async Task<string> WriteReportAsync(
+        string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns,
+        IReadOnlyList<object?[]> rows, string folder, CancellationToken ct)
+    {
+        Directory.CreateDirectory(folder);
+        var stamp = checkedAtUtc.ToLocalTime().ToString("yyyyMMdd_HHmmss", Inv); // invariant: a Persian calendar culture must not change the file name
+        var baseName = $"{SafeFileName(monitorName)}_{stamp}";
+
+        if (rows.Count > _limits.MaxWorkbookRows(columns.Count))
+        {
+            await using var csv = new CsvPartsWriter(folder, baseName, columns, _limits);
+            foreach (var row in rows) await csv.WriteRowAsync(row, ct).ConfigureAwait(false);
+            var files = await csv.CompleteAsync(ct).ConfigureAwait(false);
+            return files[0]; // the first file; the others sit next to it
+        }
+
+        var path = UniquePath(folder, baseName + ".xlsx");
+        WritePackage(path, sheet => WriteSheet(sheet, columns, rows, ct), overwrite: false);
+        return path;
+    }
+
+    /// <summary>Writes the workbook package to a temp file and moves it into place, so a failure never leaves a broken file.</summary>
+    private static void WritePackage(string fullPath, Action<Stream> writeSheet, bool overwrite)
+    {
         var temp = fullPath + ".tmp";
         try
         {
@@ -77,46 +142,15 @@ public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
                 AddText(zip, "xl/_rels/workbook.xml.rels", WorkbookRels);
                 AddText(zip, "xl/styles.xml", Styles);
                 using var sheet = zip.CreateEntry("xl/worksheets/sheet1.xml", CompressionLevel.Optimal).Open();
-                await WriteQuerySheetAsync(sheet, columns, rows, ct);
+                writeSheet(sheet);
             }
-            File.Move(temp, fullPath, true);
+            File.Move(temp, fullPath, overwrite);
         }
         catch
         {
             if (File.Exists(temp)) File.Delete(temp);
             throw;
         }
-    }
-
-    private static string Write(
-        string monitorName, DateTime checkedAtUtc, IReadOnlyList<string> columns,
-        IReadOnlyList<object?[]> rows, string folder, CancellationToken ct)
-    {
-        Directory.CreateDirectory(folder);
-        var stamp = checkedAtUtc.ToLocalTime().ToString("yyyyMMdd_HHmmss", Inv); // invariant: a Persian calendar culture must not change the file name
-        var path = UniquePath(folder, $"{SafeFileName(monitorName)}_{stamp}.xlsx");
-        var temp = path + ".tmp";
-        try
-        {
-            using (var file = File.Create(temp))
-            using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
-            {
-                AddText(zip, "[Content_Types].xml", ContentTypes);
-                AddText(zip, "_rels/.rels", RootRels);
-                AddText(zip, "xl/workbook.xml", Workbook);
-                AddText(zip, "xl/_rels/workbook.xml.rels", WorkbookRels);
-                AddText(zip, "xl/styles.xml", Styles);
-                using var sheet = zip.CreateEntry("xl/worksheets/sheet1.xml", CompressionLevel.Optimal).Open();
-                WriteSheet(sheet, columns, rows, ct);
-            }
-            File.Move(temp, path);
-        }
-        catch
-        {
-            if (File.Exists(temp)) File.Delete(temp);
-            throw;
-        }
-        return path;
     }
 
     private static void AddText(ZipArchive zip, string name, string content)
@@ -164,47 +198,6 @@ public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
         x.WriteEndElement(); // sheetData
 
         x.WriteEndElement(); // worksheet
-        x.WriteEndDocument();
-    }
-
-    private static async Task WriteQuerySheetAsync(
-        Stream stream, IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct)
-    {
-        using var x = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = Utf8, CloseOutput = false });
-        x.WriteStartDocument(true);
-        x.WriteStartElement("worksheet", Ns);
-        x.WriteStartElement("sheetViews", Ns);
-        x.WriteStartElement("sheetView", Ns);
-        x.WriteAttributeString("rightToLeft", "1");
-        x.WriteAttributeString("workbookViewId", "0");
-        x.WriteStartElement("pane", Ns);
-        x.WriteAttributeString("ySplit", "1");
-        x.WriteAttributeString("topLeftCell", "A2");
-        x.WriteAttributeString("activePane", "bottomLeft");
-        x.WriteAttributeString("state", "frozen");
-        x.WriteEndElement();
-        x.WriteEndElement();
-        x.WriteEndElement();
-        x.WriteStartElement("cols", Ns);
-        x.WriteStartElement("col", Ns);
-        x.WriteAttributeString("min", "1");
-        x.WriteAttributeString("max", Math.Max(1, columns.Count).ToString(Inv));
-        x.WriteAttributeString("width", "22");
-        x.WriteAttributeString("customWidth", "1");
-        x.WriteEndElement();
-        x.WriteEndElement();
-        x.WriteStartElement("sheetData", Ns);
-        WriteRow(x, 1, columns.Cast<object?>().ToArray(), header: true);
-        var rowNumber = 2;
-        await foreach (var row in rows.WithCancellation(ct).ConfigureAwait(false))
-        {
-            ct.ThrowIfCancellationRequested();
-            if (rowNumber >= MaxExcelRows + 1)
-                throw new InvalidOperationException("Excel supports at most 1,048,575 data rows per worksheet.");
-            WriteRow(x, rowNumber++, row, header: false);
-        }
-        x.WriteEndElement();
-        x.WriteEndElement();
         x.WriteEndDocument();
     }
 
@@ -268,7 +261,8 @@ public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
         x.WriteEndElement(); // c
     }
 
-    private static string Describe(object value) => value switch
+    /// <summary>Readable text for any value (dates, binary, formattable types); also used by the CSV writer.</summary>
+    internal static string Describe(object value) => value switch
     {
         string s => s,
         DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd", Inv) : d.ToString("yyyy-MM-dd HH:mm:ss", Inv),
@@ -280,7 +274,7 @@ public sealed class XlsxReportWriter : IReportWriter, IQueryReportWriter
     };
 
     /// <summary>Removes characters XML cannot hold and cuts text Excel cannot hold.</summary>
-    private static string Clean(string s)
+    internal static string Clean(string s)
     {
         if (s.Length > MaxCellChars) s = s[..MaxCellChars];
         var sb = new StringBuilder(s.Length);

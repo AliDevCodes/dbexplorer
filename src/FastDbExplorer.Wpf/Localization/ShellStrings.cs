@@ -7,17 +7,17 @@ public static class ShellStrings
     public const string NavConnections = "اتصال‌ها";
     public const string NavExplorer = "کاوشگر";
     public const string NavMap = "نقشه";
-    public const string NavMonitoring = "پایش";
+    public const string NavMonitoring = "مانیتورینگ";
 
     public const string NotConnected = "متصل نیستید";
-    public const string ActiveDatabase = "پایگاه‌داده‌ی فعال";
+    public const string ActiveDatabase = "پایگاه‌دادهٔ فعال";
 
     public const string ExplorerPromptTitle = "برای کاوش در جدول‌ها ابتدا به سرور وصل شوید";
     public const string ExplorerPromptBody = "پس از اتصال، پایگاه‌داده‌ها و جدول‌ها همین‌جا نمایش داده می‌شوند. نقشه بدون اتصال هم کار می‌کند.";
-    public const string MonitoringPromptTitle = "برای پایش داده‌های جدید ابتدا به سرور وصل شوید";
-    public const string MonitoringPromptBody = "پایش‌ها تا وقتی به سرور وصل هستید و برنامه باز است، در پس‌زمینه اجرا می‌شوند.";
+    public const string MonitoringPromptTitle = "برای مانیتورینگ داده‌های جدید ابتدا به سرور وصل شوید";
+    public const string MonitoringPromptBody = "مانیتورها تا وقتی به سرور وصل هستید و برنامه باز است، در پس‌زمینه اجرا می‌شوند.";
     public const string GoToConnect = "رفتن به اتصال‌ها";
-    public const string HomePromptTitle = "محیط داده‌ی شما آماده است";
+    public const string HomePromptTitle = "محیط دادهٔ شما آماده است";
     public const string HomePromptBody = "برای شروع یک پروفایل اتصال بسازید یا از پروفایل‌های ذخیره‌شده انتخاب کنید. رمز پایگاه‌داده ذخیره نمی‌شود.";
 
     public const string ConnectionsTitle = "پروفایل‌های اتصال";
@@ -42,7 +42,7 @@ public static class ShellStrings
     public const string ActiveProfile = "پروفایل فعال";
 
     public const string HomeWelcome = "خوش آمدید";
-    public const string HomeSubtitle = "کاوش داده‌ها، نقشه و پایش هشدارها، همه در یک‌جا.";
+    public const string HomeSubtitle = "کاوش داده‌ها، نقشه و مانیتورینگ هشدارها، همه در یک‌جا.";
     public const string ExplorerTileHint = "جدول‌ها را ببینید و روی سرور فیلتر کنید.";
     public const string MapTileHint = "نقشه‌ها و لایه‌های مختصات را باز کنید.";
     public const string MonitoringTileHint = "ردیف‌های جدید را زیر نظر بگیرید و هشدار بگیرید.";
@@ -52,14 +52,14 @@ public static class ShellStrings
 
     public const string Brand1 = "کاوش جدول‌ها و فیلتر روی داده‌ها؛ فقط‌خواندنی و امن.";
     public const string Brand2 = "نقشه‌ی تعاملی با لایه‌های مختصات؛ بدون نیاز به اتصال.";
-    public const string Brand3 = "پایش ردیف‌های جدید و هشدار لحظه‌ای.";
+    public const string Brand3 = "مانیتورینگ ردیف‌های جدید و هشدار لحظه‌ای.";
 
-    public const string SearchButton = "جستجو در جدول‌ها، پایش‌ها و بخش‌ها…";
-    public const string PaletteHint = "جستجوی جدول، پایش یا بخش…";
+    public const string SearchButton = "جستجو در جدول‌ها، مانیتورها و بخش‌ها…";
+    public const string PaletteHint = "جستجوی جدول، مانیتور یا بخش…";
     public const string PaletteEmpty = "نتیجه‌ای یافت نشد.";
     public const string KindSection = "بخش";
     public const string KindTable = "جدول";
-    public const string KindMonitor = "پایش";
+    public const string KindMonitor = "مانیتور";
     public const string KindAction = "دستور";
 
     public static string RowsApprox(object rows) => $"حدود {rows:N0} ردیف";
@@ -69,5 +69,5 @@ public static class ShellStrings
     public static string DatabasesCount(int count) => $"{count:N0} پایگاه‌داده";
 
     public static string MonitorsCount(int count) =>
-        count == 0 ? "هنوز پایشی تعریف نشده است." : $"{count:N0} پایش تعریف شده است.";
+        count == 0 ? "هنوز مانیتوری تعریف نشده است." : $"{count:N0} مانیتور تعریف شده است.";
 }

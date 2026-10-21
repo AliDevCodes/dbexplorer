@@ -15,7 +15,10 @@ public interface IWatermarkReader
     Task<WatermarkReading> ReadAsync(ConnectionSettings settings, string database, string schema, string table, string column, CancellationToken ct);
 }
 
-/// <summary>Writes the matching records to a report file and returns its full path.</summary>
+/// <summary>
+/// Writes the matching records to a report file and returns its full path. A very large report is written as CSV in several
+/// files instead (see <see cref="ExportLimits"/>); the returned path is then the first file.
+/// </summary>
 public interface IReportWriter
 {
     Task<string> WriteAsync(
@@ -23,10 +26,13 @@ public interface IReportWriter
         IReadOnlyList<object?[]> rows, string folder, CancellationToken ct);
 }
 
-/// <summary>Streams every row of a read-only query result into a user-selected Excel workbook.</summary>
+/// <summary>
+/// Streams every row of a read-only query result into the file the user chose. A normal result becomes an Excel workbook;
+/// a very big one is written as CSV, split into several files, so no single file gets heavy (see <see cref="ExportLimits"/>).
+/// </summary>
 public interface IQueryReportWriter
 {
-    Task WriteQueryAsync(
+    Task<QueryExportResult> WriteQueryAsync(
         IReadOnlyList<string> columns, IAsyncEnumerable<object?[]> rows, string path, CancellationToken ct);
 }
 
