@@ -42,6 +42,10 @@ public partial class MapSendPanel : UserControl
     public static readonly DependencyProperty IsSendEnabledProperty = DependencyProperty.Register(
         nameof(IsSendEnabled), typeof(bool), typeof(MapSendPanel), new PropertyMetadata(true, OnStateChanged));
 
+    /// <summary>The per-point details row is open (closed by default; toggled by the details button).</summary>
+    public static readonly DependencyProperty IsDetailsOpenProperty =
+        DependencyProperty.Register(nameof(IsDetailsOpen), typeof(bool), typeof(MapSendPanel), new PropertyMetadata(false));
+
     // Computed by this control (read-only for the host).
     private static readonly DependencyPropertyKey CanSendKey =
         DependencyProperty.RegisterReadOnly(nameof(CanSend), typeof(bool), typeof(MapSendPanel), new PropertyMetadata(false));
@@ -49,6 +53,8 @@ public partial class MapSendPanel : UserControl
         DependencyProperty.RegisterReadOnly(nameof(Hint), typeof(string), typeof(MapSendPanel), new PropertyMetadata(""));
     private static readonly DependencyPropertyKey HasHintKey =
         DependencyProperty.RegisterReadOnly(nameof(HasHint), typeof(bool), typeof(MapSendPanel), new PropertyMetadata(false));
+    private static readonly DependencyPropertyKey HasProblemHintKey =
+        DependencyProperty.RegisterReadOnly(nameof(HasProblemHint), typeof(bool), typeof(MapSendPanel), new PropertyMetadata(false));
     private static readonly DependencyPropertyKey SelectionTextKey =
         DependencyProperty.RegisterReadOnly(nameof(SelectionText), typeof(string), typeof(MapSendPanel), new PropertyMetadata(""));
     private static readonly DependencyPropertyKey SendTextKey =
@@ -61,6 +67,7 @@ public partial class MapSendPanel : UserControl
     public static readonly DependencyProperty CanSendProperty = CanSendKey.DependencyProperty;
     public static readonly DependencyProperty HintProperty = HintKey.DependencyProperty;
     public static readonly DependencyProperty HasHintProperty = HasHintKey.DependencyProperty;
+    public static readonly DependencyProperty HasProblemHintProperty = HasProblemHintKey.DependencyProperty;
     public static readonly DependencyProperty SelectionTextProperty = SelectionTextKey.DependencyProperty;
     public static readonly DependencyProperty SendTextProperty = SendTextKey.DependencyProperty;
     public static readonly DependencyProperty DetailsCountTextProperty = DetailsCountTextKey.DependencyProperty;
@@ -92,15 +99,20 @@ public partial class MapSendPanel : UserControl
 
     public bool IsSendEnabled { get => (bool)GetValue(IsSendEnabledProperty); set => SetValue(IsSendEnabledProperty, value); }
 
+    public bool IsDetailsOpen { get => (bool)GetValue(IsDetailsOpenProperty); set => SetValue(IsDetailsOpenProperty, value); }
+
     public bool CanSend => (bool)GetValue(CanSendProperty);
     public string Hint => (string)GetValue(HintProperty);
     public bool HasHint => (bool)GetValue(HasHintProperty);
+    public bool HasProblemHint => (bool)GetValue(HasProblemHintProperty);
     public string SelectionText => (string)GetValue(SelectionTextProperty);
     public string SendText => (string)GetValue(SendTextProperty);
     public string DetailsCountText => (string)GetValue(DetailsCountTextProperty);
     public string DetailsNote => (string)GetValue(DetailsNoteProperty);
 
     private static void OnStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) => ((MapSendPanel)d).Refresh();
+
+    private void OnDetailsClick(object sender, RoutedEventArgs e) => IsDetailsOpen = !IsDetailsOpen;
 
     /// <summary>One rule set for both screens: what the button says, whether it is on, and what hint explains why not.</summary>
     private void Refresh()
@@ -115,6 +127,7 @@ public partial class MapSendPanel : UserControl
         SetValue(CanSendKey, hasRows && hasColumns && IsSendEnabled);
         SetValue(HintKey, hint);
         SetValue(HasHintKey, hint.Length > 0);
+        SetValue(HasProblemHintKey, hint.Length > 0 && hasRows); // the "select rows" hint is only a tooltip; real problems get a line
         SetValue(SelectionTextKey, hasRows ? MapSendStrings.RowsSelected(SelectedCount) : MapSendStrings.NoRowsSelected);
         SetValue(SendTextKey, hasRows ? MapSendStrings.SendRowsToMap(SelectedCount) : MapSendStrings.SendToMap);
         SetValue(DetailsCountTextKey, MapSendStrings.DetailsCount(DetailCount, DetailLimit));

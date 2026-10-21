@@ -232,6 +232,10 @@ public sealed partial class TableQueryViewModel : ObservableObject
     [RelayCommand] private void Cancel() => _running?.Cancel();
     [RelayCommand] private void ToggleConfig() => IsConfigVisible = !IsConfigVisible;
 
+    /// <summary>
+    /// Saves every row of the query. A normal result becomes the .xlsx the user chose; a very big one is written as CSV, split
+    /// into several files, so no single file gets heavy (the writer decides, see <see cref="ExportLimits"/>).
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanExportExcel))]
     private async Task ExportExcelAsync()
     {
@@ -245,8 +249,10 @@ public sealed partial class TableQueryViewModel : ObservableObject
         ErrorMessage = "";
         try
         {
-            await _queryReportWriter.WriteQueryAsync(_displayColumns, ReadExportRowsAsync(cts.Token), path, cts.Token);
-            PageInfo = string.Format(CultureInfo.CurrentCulture, Strings.ExportCompleted, path, _exportedRows);
+            var result = await _queryReportWriter.WriteQueryAsync(_displayColumns, ReadExportRowsAsync(cts.Token), path, cts.Token);
+            PageInfo = result.Format == QueryExportFormat.Xlsx
+                ? string.Format(CultureInfo.CurrentCulture, Strings.ExportCompleted, result.Files[0], result.Rows)
+                : ExportStrings.CsvCompleted(result);
         }
         catch (OperationCanceledException) { PageInfo = Strings.Cancelled; }
         catch (Exception ex) { ErrorMessage = Strings.ExportFailed + ex.Message; }
@@ -467,6 +473,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
 
     private void Show(PageResult result, long milliseconds)
     {
+        var firstResult = !HasResult;
         _lastResult = result;
         ResultColumns = _displayColumns;
         OnPropertyChanged(nameof(ResultColumns));
@@ -481,6 +488,8 @@ public sealed partial class TableQueryViewModel : ObservableObject
             ToMapValues(result.Columns, row))).ToList();
         SelectedRows = [];
         HasResult = true;
+        // The settings card is tall. Once the first result is there, the table gets the room; the gear button brings the card back.
+        if (firstResult) IsConfigVisible = false;
         HasNext = result.HasMore;
         HasPrevious = _history.Count > 0;
         PageInfo = result.Rows.Count == 0

@@ -44,8 +44,8 @@
       <RowDefinition Height="*" /><RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <!-- Header -->
-    <Grid Grid.Row="0" Margin="0,0,0,14">
+    <!-- Header: table name + row count + active filters; settings, cancel, Excel export and Run on the other side -->
+    <Grid Grid.Row="0" Margin="0,0,0,10">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
       <StackPanel VerticalAlignment="Center">
         <TextBlock Text="{Binding TableName}" FlowDirection="LeftToRight" HorizontalAlignment="Left" FontSize="22"
@@ -53,12 +53,22 @@
         <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
           <TextBlock Text="{x:Static l:Strings.ApproxRows}" Style="{StaticResource Muted}" />
           <TextBlock Text="{Binding ApproxRows, StringFormat={}{0:N0}}" Style="{StaticResource Muted}" Margin="8,0,0,0" />
+          <!-- The settings card hides itself after the first result; this tells the user that filters are still applied -->
+          <TextBlock Text="{Binding Filters.Count, StringFormat={x:Static l:ExportStrings.ActiveFiltersFormat}}" Margin="10,0,0,0">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                <Style.Triggers><DataTrigger Binding="{Binding Filters.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
         </StackPanel>
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
         <Button Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="{x:Static l:Strings.ToggleSettings}" Command="{Binding ToggleConfigCommand}" />
         <Button Content="{x:Static l:Strings.Cancel}" Command="{Binding CancelCommand}" Margin="8,0,0,0"
                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+        <Button Content="{x:Static l:Strings.ExportExcel}" Command="{Binding ExportExcelCommand}" Margin="8,0,0,0" />
         <Button Style="{StaticResource PrimaryButton}" Content="{x:Static l:Strings.Run}" Command="{Binding RunCommand}" Margin="8,0,0,0" MinWidth="110" />
       </StackPanel>
     </Grid>
@@ -213,17 +223,14 @@
       <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
     </Border>
 
-    <!-- Results -->
+    <!-- Results: a compact map toolbar, then the table takes all the remaining room -->
     <Grid Grid.Row="3">
       <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="14" Padding="1">
         <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,8,10,4">
-            <Button Content="{x:Static l:Strings.ExportExcel}" Command="{Binding ExportExcelCommand}" />
-          </StackPanel>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
 
           <!-- The same "show on the map" panel as Monitoring -->
-          <views:MapSendPanel Grid.Row="1" Margin="10,4,10,8"
+          <views:MapSendPanel Grid.Row="0" Margin="8,8,8,6"
                               Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}"
                               Columns="{Binding CoordinateColumns}"
                               LatitudeColumn="{Binding LatitudeColumn, Mode=TwoWay}"
@@ -233,7 +240,7 @@
                               SelectedCount="{Binding SelectedRowCount}"
                               SendCommand="{Binding ShowSelectedOnMapCommand}" />
 
-          <DataGrid x:Name="ResultGrid" Grid.Row="2" FlowDirection="LeftToRight" ItemsSource="{Binding Rows}"
+          <DataGrid x:Name="ResultGrid" Grid.Row="1" FlowDirection="LeftToRight" ItemsSource="{Binding Rows}"
                     SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="ResultGrid_SelectionChanged"
                     MouseDoubleClick="ResultGrid_MouseDoubleClick"
                     ToolTip="برای مشاهده مقدار کامل، روی یک سلول دوبار کلیک کنید."
@@ -253,7 +260,7 @@
     </Grid>
 
     <!-- Pager (unchanged) -->
-    <Grid Grid.Row="4" Margin="0,12,0,0">
+    <Grid Grid.Row="4" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
         <Button Content="{x:Static l:Strings.Previous}" Command="{Binding PreviousCommand}" />
         <Button Content="{x:Static l:Strings.Next}" Command="{Binding NextCommand}" Margin="8,0,0,0" />
