@@ -1,3 +1,4 @@
+using System.IO;
 using FastDbExplorer.Application.Abstractions;
 
 namespace FastDbExplorer.Wpf.Localization;
