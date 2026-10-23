@@ -51,7 +51,8 @@ public sealed record MonitorDefinition(
     Guid? CoordinateLayerId = null,
     string? LatitudeColumn = null,
     string? LongitudeColumn = null,
-    double? DistanceMeters = null)
+    double? DistanceMeters = null,
+    IReadOnlyList<Guid>? CoordinateLayerIds = null)
 {
     public const int MinIntervalMinutes = 1;
     public const int MaxIntervalMinutes = 1440;
@@ -59,9 +60,33 @@ public sealed record MonitorDefinition(
     [JsonIgnore]
     public string TargetText => $"{Database} · {Schema}.{Table}";
 
+    /// <summary>
+    /// The proximity rule is a rule on its own: it needs no <see cref="Conditions"/> at all. When both are present
+    /// the check ANDs them (a new record must pass the conditions and be close to one of the layers).
+    /// </summary>
     [JsonIgnore]
-    public bool HasProximityRule => CoordinateLayerId is not null || LatitudeColumn is not null
+    public bool HasProximityRule => CoordinateLayerIds is { Count: > 0 } || CoordinateLayerId is not null
+                                    || LatitudeColumn is not null
                                     || LongitudeColumn is not null || DistanceMeters is not null;
+
+    /// <summary>
+    /// Every selected layer, whichever way it was stored: <see cref="CoordinateLayerIds"/> is the current form,
+    /// <see cref="CoordinateLayerId"/> is the single-layer form written by older builds (read-only migration path).
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<Guid> SelectedCoordinateLayerIds
+    {
+        get
+        {
+            if (CoordinateLayerIds is { Count: > 0 } many)
+                return many.Where(id => id != Guid.Empty).Distinct().ToList();
+            return CoordinateLayerId is { } single && single != Guid.Empty ? [single] : [];
+        }
+    }
+
+    /// <summary>A monitor with no condition and no proximity rule would alert on every new row; that is not a valid monitor.</summary>
+    [JsonIgnore]
+    public bool HasEffectiveRule => Conditions.Count > 0 || HasProximityRule;
 
     /// <summary>Copy of this monitor with the state of a finished check applied.</summary>
     public MonitorDefinition Apply(MonitorCheckResult result) =>

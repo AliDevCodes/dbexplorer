@@ -138,11 +138,38 @@
       <!-- Optional client-side spatial rule; map visibility and drawing radius are intentionally unrelated. -->
       <Border Style="{StaticResource Card}" Padding="16" CornerRadius="14" Margin="0,0,0,18">
         <StackPanel>
-          <CheckBox Content="هشدار بر اساس نزدیکی به لایه‌ی مختصات واردشده از Excel" IsChecked="{Binding UseProximity}" />
+          <CheckBox Content="{x:Static l:MonitoringStrings.ProximityTitle}" IsChecked="{Binding UseProximity}" />
           <StackPanel Margin="0,12,0,0" Visibility="{Binding UseProximity, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="لایه‌ی مختصات ذخیره‌شده" Style="{StaticResource FieldLabel}" />
-            <ComboBox FlowDirection="LeftToRight" ItemsSource="{Binding CoordinateLayerOptions}"
-                      DisplayMemberPath="Name" SelectedItem="{Binding SelectedCoordinateLayer}" Margin="0,0,0,12" />
+            <TextBlock Text="{x:Static l:MonitoringStrings.ProximityLayers}" Style="{StaticResource FieldLabel}" />
+            <!-- Several layers may be watched at once: every ticked layer contributes its own points. -->
+            <Border BorderThickness="1" BorderBrush="{DynamicResource LineBrush}" CornerRadius="8" Padding="10,6" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="{x:Static l:MonitoringStrings.ProximityNoLayers}" TextWrapping="Wrap">
+                  <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding CoordinateLayerChoices.Count}" Value="0">
+                          <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </TextBlock.Style>
+                </TextBlock>
+                <ItemsControl ItemsSource="{Binding CoordinateLayerChoices}" IsTabStop="False">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <CheckBox IsChecked="{Binding IsSelected}" Margin="0,4">
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock Text="{Binding Name}" />
+                          <TextBlock Text="{Binding PointsText}" Style="{StaticResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </CheckBox>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
             <Grid Margin="0,0,0,12">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
               <StackPanel Margin="0,0,8,0">
@@ -154,10 +181,10 @@
                 <ComboBox FlowDirection="LeftToRight" ItemsSource="{Binding CoordinateColumns}" SelectedItem="{Binding SelectedLongitudeColumn}" />
               </StackPanel>
             </Grid>
-            <TextBlock Text="حداکثر فاصله تا نزدیک‌ترین نقطه (متر)" Style="{StaticResource FieldLabel}" />
+            <TextBlock Text="{x:Static l:MonitoringStrings.ProximityDistance}" Style="{StaticResource FieldLabel}" />
             <TextBox Width="160" HorizontalAlignment="Left" FlowDirection="LeftToRight"
                      Text="{Binding DistanceText, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Text="فقط رکوردهایی هشدار می‌شوند که هر دو شرط‌های بالا و این فاصله را داشته باشند. مختصات WGS84 بررسی می‌شود؛ نمایش یا شعاع ترسیم لایه روی نقشه اثری ندارد."
+            <TextBlock Text="{x:Static l:MonitoringStrings.ProximityHint}"
                        Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
           </StackPanel>
         </StackPanel>

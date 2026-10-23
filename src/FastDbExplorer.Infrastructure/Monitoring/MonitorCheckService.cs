@@ -25,7 +25,7 @@ public sealed class MonitorCheckService(
     public async Task<MonitorCheckResult> CheckAsync(ConnectionSettings settings, MonitorDefinition monitor, CancellationToken ct)
     {
         var checkedAt = DateTime.UtcNow;
-        var layer = await LoadProximityLayerAsync(monitor, ct);
+        var layers = await LoadProximityLayersAsync(monitor, ct);
         var columns = await metadata.GetColumnsAsync(settings, monitor.Database, monitor.Schema, monitor.Table, ct);
 
         var watermark = columns.FirstOrDefault(c => c.Name == monitor.WatermarkColumn)
@@ -37,7 +37,7 @@ public sealed class MonitorCheckService(
         var selected = columns.Where(c => c.IsFilterable).Select(c => c.Name).ToList();
         var latitudeIndex = -1;
         var longitudeIndex = -1;
-        if (layer is not null)
+        if (layers.Count > 0)
         {
             latitudeIndex = AddCoordinateColumn(monitor.LatitudeColumn!, columns, selected);
             longitudeIndex = AddCoordinateColumn(monitor.LongitudeColumn!, columns, selected);
@@ -105,7 +105,7 @@ public sealed class MonitorCheckService(
                 }
 
                 object?[]? matched = null;
-                if (layer is null)
+                if (layers.Count == 0)
                 {
                     matched = candidate;
                 }
@@ -113,13 +113,15 @@ public sealed class MonitorCheckService(
                 {
                     var latitude = ReadCoordinate(candidate[latitudeIndex], monitor.LatitudeColumn!, "latitude", rowNumber, monitor.Name);
                     var longitude = ReadCoordinate(candidate[longitudeIndex], monitor.LongitudeColumn!, "longitude", rowNumber, monitor.Name);
-                    var nearest = FindNearest(layer, latitude, longitude, ct);
+                    // The nearest point is taken across every selected layer, so one row matches once
+                    // (a record close to two layers is reported with the closest of them).
+                    var nearest = FindNearest(layers, latitude, longitude, ct);
                     if (nearest.DistanceMeters <= monitor.DistanceMeters!.Value)
                     {
                         matched = new object?[candidate.Length + 3];
                         Array.Copy(candidate, matched, candidate.Length);
                         matched[^3] = nearest.Point.Name;
-                        matched[^2] = layer.Name;
+                        matched[^2] = nearest.LayerName;
                         matched[^1] = nearest.DistanceMeters;
                     }
                 }
@@ -143,7 +145,7 @@ public sealed class MonitorCheckService(
 
         var next = truncated ? capWatermark : upper;
 
-        var reportColumns = layer is null
+        var reportColumns = layers.Count == 0
             ? selected
             : selected.Concat([NearestPointColumn, CoordinateLayerColumn, DistanceColumn]).ToList();
         string? reportPath = null;
@@ -153,26 +155,37 @@ public sealed class MonitorCheckService(
         return new MonitorCheckResult(monitor.Id, checkedAt, reportColumns, rows, truncated, next, reportPath, false);
     }
 
-    private async Task<MapLayer?> LoadProximityLayerAsync(MonitorDefinition monitor, CancellationToken ct)
+    /// <summary>
+    /// Every layer the proximity rule watches, in the order the user selected them. The rule is independent of the
+    /// user conditions: it can be the only rule of a monitor (see <see cref="MonitorDefinition.HasEffectiveRule"/>).
+    /// </summary>
+    private async Task<IReadOnlyList<MapLayer>> LoadProximityLayersAsync(MonitorDefinition monitor, CancellationToken ct)
     {
-        if (!monitor.HasProximityRule) return null;
+        var ids = monitor.SelectedCoordinateLayerIds;
+        if (ids.Count == 0 && !monitor.HasProximityRule) return [];
+        if (ids.Count == 0)
+            throw new InvalidOperationException($"Monitor '{monitor.Name}' has a proximity rule without a saved coordinate layer. Reopen it and select at least one layer.");
 
-        if (monitor.CoordinateLayerId is not { } layerId || layerId == Guid.Empty
-            || string.IsNullOrWhiteSpace(monitor.LatitudeColumn) || string.IsNullOrWhiteSpace(monitor.LongitudeColumn)
+        if (string.IsNullOrWhiteSpace(monitor.LatitudeColumn) || string.IsNullOrWhiteSpace(monitor.LongitudeColumn)
             || string.Equals(monitor.LatitudeColumn, monitor.LongitudeColumn, StringComparison.OrdinalIgnoreCase)
             || monitor.DistanceMeters is not { } distance || !double.IsFinite(distance) || distance <= 0
             || distance > CoordinateRules.MaxRadiusMeters)
-            throw new InvalidOperationException($"Monitor '{monitor.Name}' has an incomplete or invalid proximity rule. Reopen it and select a layer, distinct numeric coordinate columns, and a distance greater than 0 and no greater than {CoordinateRules.MaxRadiusMeters} metres.");
+            throw new InvalidOperationException($"Monitor '{monitor.Name}' has an incomplete or invalid proximity rule. Reopen it and select distinct numeric coordinate columns, and a distance greater than 0 and no greater than {CoordinateRules.MaxRadiusMeters} metres.");
 
-        var layer = (await coordinateLayers.LoadAllAsync(ct)).FirstOrDefault(item => item.Id == layerId);
-        if (layer is null)
-            throw new InvalidOperationException($"Monitor '{monitor.Name}' refers to a missing or unreadable imported coordinate layer ({layerId}). Choose an available layer in the monitor editor.");
-        if (layer.Points.Count == 0)
-            throw new InvalidOperationException($"The selected coordinate layer '{layer.Name}' contains no points and cannot be used by monitor '{monitor.Name}'.");
-        if (layer.Points.Any(point => !CoordinateRules.IsValidLatitude(point.Latitude) || !CoordinateRules.IsValidLongitude(point.Longitude)))
-            throw new InvalidOperationException($"The selected coordinate layer '{layer.Name}' contains invalid WGS84 coordinates.");
-
-        return layer;
+        var all = await coordinateLayers.LoadAllAsync(ct);
+        var layers = new List<MapLayer>(ids.Count);
+        foreach (var layerId in ids)
+        {
+            var layer = all.FirstOrDefault(item => item.Id == layerId);
+            if (layer is null)
+                throw new InvalidOperationException($"Monitor '{monitor.Name}' refers to a missing or unreadable imported coordinate layer ({layerId}). Choose an available layer in the monitor editor.");
+            if (layer.Points.Count == 0)
+                throw new InvalidOperationException($"The selected coordinate layer '{layer.Name}' contains no points and cannot be used by monitor '{monitor.Name}'.");
+            if (layer.Points.Any(point => !CoordinateRules.IsValidLatitude(point.Latitude) || !CoordinateRules.IsValidLongitude(point.Longitude)))
+                throw new InvalidOperationException($"The selected coordinate layer '{layer.Name}' contains invalid WGS84 coordinates.");
+            layers.Add(layer);
+        }
+        return layers;
     }
 
     private static int AddCoordinateColumn(string name, IReadOnlyList<ColumnInfo> columns, List<string> selected)
@@ -213,21 +226,26 @@ public sealed class MonitorCheckService(
         return parsed;
     }
 
-    private static (MapPoint Point, double DistanceMeters) FindNearest(
-        MapLayer layer, double latitude, double longitude, CancellationToken ct)
+    private static (MapPoint Point, string LayerName, double DistanceMeters) FindNearest(
+        IReadOnlyList<MapLayer> layers, double latitude, double longitude, CancellationToken ct)
     {
         MapPoint? nearest = null;
+        var nearestLayer = "";
         var distance = double.PositiveInfinity;
-        for (var i = 0; i < layer.Points.Count; i++)
+        foreach (var layer in layers)
         {
-            if ((i & 0x3FF) == 0) ct.ThrowIfCancellationRequested();
-            var point = layer.Points[i];
-            var candidate = MonitorProximity.HaversineMeters(latitude, longitude, point.Latitude, point.Longitude);
-            if (candidate >= distance) continue;
-            nearest = point;
-            distance = candidate;
+            for (var i = 0; i < layer.Points.Count; i++)
+            {
+                if ((i & 0x3FF) == 0) ct.ThrowIfCancellationRequested();
+                var point = layer.Points[i];
+                var candidate = MonitorProximity.HaversineMeters(latitude, longitude, point.Latitude, point.Longitude);
+                if (candidate >= distance) continue;
+                nearest = point;
+                nearestLayer = layer.Name;
+                distance = candidate;
+            }
         }
-        return (nearest!, distance);
+        return (nearest!, nearestLayer, distance);
     }
 
     /// <summary>

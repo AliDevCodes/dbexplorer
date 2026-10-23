@@ -68,8 +68,8 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
     [ObservableProperty] private string? _selectedWatermark;
     [ObservableProperty] private IReadOnlyList<string> _filterableColumns = [];
     [ObservableProperty] private IReadOnlyList<string> _coordinateColumns = [];
-    [ObservableProperty] private IReadOnlyList<MapLayer> _coordinateLayerOptions = [];
-    [ObservableProperty] private MapLayer? _selectedCoordinateLayer;
+    /// <summary>Every saved layer as a checkbox: the proximity rule may watch several layers at once.</summary>
+    public ObservableCollection<CoordinateLayerChoice> CoordinateLayerChoices { get; } = [];
     [ObservableProperty] private string? _selectedLatitudeColumn;
     [ObservableProperty] private string? _selectedLongitudeColumn;
     [ObservableProperty] private bool _useProximity;
@@ -94,9 +94,11 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         {
             try
             {
-                CoordinateLayerOptions = (await _coordinateLayers.LoadAllAsync(_lifetime.Token)).ToList();
-                if (_existing?.CoordinateLayerId is { } layerId)
-                    SelectedCoordinateLayer = CoordinateLayerOptions.FirstOrDefault(layer => layer.Id == layerId);
+                var layers = await _coordinateLayers.LoadAllAsync(_lifetime.Token);
+                var selectedIds = _existing?.SelectedCoordinateLayerIds ?? [];
+                CoordinateLayerChoices.Clear();
+                foreach (var layer in layers)
+                    CoordinateLayerChoices.Add(new CoordinateLayerChoice(layer, selectedIds.Contains(layer.Id)));
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { ErrorMessage = "خواندن لایه‌های مختصات ذخیره‌شده ممکن نشد: " + ex.Message; }
@@ -239,7 +241,16 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         { ErrorMessage = MonitoringStrings.ErrFolderCreate + ex.Message; return; }
 
-        if (Filters.Count == 0) { ErrorMessage = MonitoringStrings.ErrNoConditions; return; }
+        // The proximity rule stands on its own: a monitor may have conditions, a proximity rule, or both.
+        // Only a monitor with neither would alert on every new row, so that combination is refused.
+        // The checkbox is the switch: unticking it removes the rule even if old layer ticks are still in the list.
+        var proximityRequested = UseProximity;
+        var layerIds = proximityRequested
+            ? CoordinateLayerChoices.Where(choice => choice.IsSelected).Select(choice => choice.Layer.Id).ToList()
+            : [];
+        if (Filters.Count == 0 && !proximityRequested)
+        { ErrorMessage = MonitoringStrings.ErrNoConditionsOrProximity; return; }
+
         var conditions = new List<FilterCondition>();
         foreach (var row in Filters)
         {
@@ -255,14 +266,16 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
 
         var logic = UseOr ? FilterLogic.Or : FilterLogic.And;
 
-        Guid? coordinateLayerId = null;
+        IReadOnlyList<Guid>? coordinateLayerIds = null;
         string? latitudeColumn = null;
         string? longitudeColumn = null;
         double? distanceMeters = null;
-        if (UseProximity)
+        if (proximityRequested)
         {
-            if (SelectedCoordinateLayer is null || SelectedCoordinateLayer.Points.Count == 0)
-            { ErrorMessage = "یک لایه‌ی مختصات ذخیره‌شده و دارای نقطه انتخاب کنید؛ لایه‌ی حذف‌شده باید با لایه‌ی دیگری جایگزین شود."; return; }
+            if (layerIds.Count == 0)
+            { ErrorMessage = MonitoringStrings.ErrNoProximityLayer; return; }
+            if (CoordinateLayerChoices.Any(choice => choice.IsSelected && choice.Layer.Points.Count == 0))
+            { ErrorMessage = MonitoringStrings.ErrEmptyProximityLayer; return; }
             if (SelectedLatitudeColumn is null || SelectedLongitudeColumn is null
                 || !CoordinateColumns.Contains(SelectedLatitudeColumn, StringComparer.Ordinal)
                 || !CoordinateColumns.Contains(SelectedLongitudeColumn, StringComparer.Ordinal)
@@ -276,7 +289,7 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
                 || !double.IsFinite(parsedDistance) || parsedDistance <= 0 || parsedDistance > CoordinateRules.MaxRadiusMeters)
             { ErrorMessage = $"فاصله باید عددی بزرگ‌تر از صفر و حداکثر {CoordinateRules.MaxRadiusMeters} متر باشد."; return; }
 
-            coordinateLayerId = SelectedCoordinateLayer.Id;
+            coordinateLayerIds = layerIds;
             latitudeColumn = SelectedLatitudeColumn;
             longitudeColumn = SelectedLongitudeColumn;
             distanceMeters = parsedDistance;
@@ -294,12 +307,14 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
         var definition = _existing is null
             ? new MonitorDefinition(Guid.NewGuid(), name, _settings.Server, database, schema, table, watermark,
                 conditions, logic, minutes, folder, sound, true,
-                CoordinateLayerId: coordinateLayerId, LatitudeColumn: latitudeColumn,
-                LongitudeColumn: longitudeColumn, DistanceMeters: distanceMeters)
+                CoordinateLayerId: coordinateLayerIds is { Count: 1 } ? coordinateLayerIds[0] : null,
+                LatitudeColumn: latitudeColumn, LongitudeColumn: longitudeColumn, DistanceMeters: distanceMeters,
+                CoordinateLayerIds: coordinateLayerIds)
             : _existing with { Name = name, Conditions = conditions, Logic = logic,
                                IntervalMinutes = minutes, OutputFolder = folder, PlaySound = sound,
-                               CoordinateLayerId = coordinateLayerId, LatitudeColumn = latitudeColumn,
-                               LongitudeColumn = longitudeColumn, DistanceMeters = distanceMeters };
+                               CoordinateLayerId = coordinateLayerIds is { Count: 1 } ? coordinateLayerIds[0] : null,
+                               LatitudeColumn = latitudeColumn, LongitudeColumn = longitudeColumn,
+                               DistanceMeters = distanceMeters, CoordinateLayerIds = coordinateLayerIds };
 
         Saved?.Invoke(definition);
     }
@@ -308,4 +323,14 @@ public sealed partial class MonitorEditorViewModel : ObservableObject, IDisposab
 
     private static string DefaultFolder() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "FastDbExplorer", "Reports");
+}
+
+/// <summary>One saved coordinate layer in the proximity list: the checkbox decides whether this layer is watched.</summary>
+public sealed partial class CoordinateLayerChoice(MapLayer layer, bool isSelected) : ObservableObject
+{
+    public MapLayer Layer { get; } = layer;
+    public string Name => Layer.Name;
+    public string PointsText => MonitoringStrings.PointsCount(Layer.Points.Count);
+
+    [ObservableProperty] private bool _isSelected = isSelected;
 }

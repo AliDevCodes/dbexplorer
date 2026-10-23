@@ -64,6 +64,23 @@ public static class MonitoringStrings
     public const string ErrTarget = "پایگاه‌داده و جدول را انتخاب کنید.";
     public const string ErrWatermark = "ستون تشخیص رکورد جدید را انتخاب کنید (ستون عددی یا تاریخ).";
     public const string ErrNoConditions = "حداقل یک شرط تعریف کنید.";
+
+    /// <summary>Shown when the monitor has neither a condition nor a proximity rule (it would alert on every new row).</summary>
+    public const string ErrNoConditionsOrProximity =
+        "برای مانیتور حداقل یک قاعده لازم است: یا یک شرط (مثلاً مکان) یا هشدار نزدیکی به لایه‌ی مختصات. هر دو با هم هم مجاز است.";
+
+    public const string ErrNoProximityLayer = "حداقل یک لایه‌ی مختصات ذخیره‌شده را برای هشدار نزدیکی انتخاب کنید.";
+    public const string ErrEmptyProximityLayer = "یکی از لایه‌های انتخاب‌شده هیچ نقطه‌ای ندارد؛ آن را بردارید یا لایه‌ی دیگری انتخاب کنید.";
+
+    public const string ProximityTitle = "هشدار بر اساس نزدیکی به لایه‌ی مختصات واردشده از Excel";
+    public const string ProximityLayers = "لایه‌های مختصات (می‌توانید چند لایه را انتخاب کنید)";
+    public const string ProximityDistance = "حداکثر فاصله تا نزدیک‌ترین نقطه (متر)";
+    public const string ProximityHint =
+        "این قاعده مستقل از شرط‌های بالاست: می‌توانید فقط با همین قاعده ذخیره کنید. اگر شرط هم داشته باشید، رکورد جدید باید هر دو را داشته باشد. مختصات WGS84 بررسی می‌شود و شعاع ترسیم لایه روی نقشه اثری ندارد.";
+    public const string ProximityNoLayers =
+        "هنوز لایه‌ی مختصاتی ذخیره نشده است؛ از بخش نقشه یک فایل Excel وارد کنید.";
+
+    public static string PointsCount(int count) => $"{count:N0} نقطه";
     public const string ErrInterval = "بازه‌ی بررسی باید عددی بین 1 تا 1440 دقیقه باشد.";
     public const string ErrFolder = "مسیر پوشه‌ی گزارش را کامل وارد کنید (مثلاً D:\\Reports).";
     public const string ErrFolderCreate = "ایجاد یا دسترسی به این پوشه ممکن نیست: ";
