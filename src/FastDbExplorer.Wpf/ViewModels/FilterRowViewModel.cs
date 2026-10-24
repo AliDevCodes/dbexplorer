@@ -53,8 +53,18 @@ public sealed partial class FilterRowViewModel : ObservableObject
     [ObservableProperty] private string _value  = "";
     [ObservableProperty] private string _value2 = "";
 
-    public bool NeedsValue       => SelectedOperator.Operator is not (FilterOperator.IsNull or FilterOperator.IsNotNull);
-    public bool NeedsSecondValue => SelectedOperator.Operator == FilterOperator.Between;
+    /// <summary>
+    /// The operator combo box can hand back null (its item list is replaced, or the item is not found). A filter row always
+    /// keeps a real operator: null goes back to the first one, so nothing that reads the operator can fail on it.
+    /// </summary>
+    partial void OnSelectedOperatorChanged(OperatorOption value)
+    {
+        if (value is null) SelectedOperator = OperatorOption.All[0];
+    }
+
+    // Null-safe reads: a row can be asked for these while the combo box is still being set up.
+    public bool NeedsValue       => SelectedOperator?.Operator is not (FilterOperator.IsNull or FilterOperator.IsNotNull);
+    public bool NeedsSecondValue => SelectedOperator?.Operator == FilterOperator.Between;
 
     public bool IsDateTimeField
     {
