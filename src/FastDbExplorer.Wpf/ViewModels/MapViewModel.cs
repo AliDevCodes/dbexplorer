@@ -41,6 +41,10 @@ public sealed partial class MapViewModel : ObservableObject
     private readonly List<QueryResultSet> _queryResults = [];
     private bool _coordinateLayersLoaded;
 
+    // True while one of the two tab properties is pushing its change to the other. The two tabs are bound to two RadioButtons
+    // in two-way mode; without this guard each change re-enters the other property and the loop never ends (stack overflow).
+    private bool _syncingTabs;
+
     public MapViewModel(
         IMapSourceFactory factory,
         IFileDialogService dialogs,
@@ -123,10 +127,15 @@ public sealed partial class MapViewModel : ObservableObject
     // Point under the mouse (status bar). Clicked points show their details as cards on the map itself.
     [ObservableProperty] private string _hoverText = "";
 
+    /// <summary>The other tab. Two-way bound to a RadioButton; the guard stops the echo of the change coming back.</summary>
     public bool IsMapLayersTab
     {
         get => !IsExcelTab;
-        set => IsExcelTab = !value;
+        set
+        {
+            if (_syncingTabs) return;
+            IsExcelTab = !value;
+        }
     }
 
     public string ExcelTabText => MapUiStrings.TabExcel(CoordinateLayers.Count);
@@ -147,7 +156,14 @@ public sealed partial class MapViewModel : ObservableObject
     /// <summary>The coordinate panel needs the map (the layers are drawn on it) and has something to show.</summary>
     public bool ShowCoordinatePanel => HasMap && (HasCoordinateLayers || HasCoordinateStatus);
 
-    partial void OnIsExcelTabChanged(bool value) => OnPropertyChanged(nameof(IsMapLayersTab));
+    partial void OnIsExcelTabChanged(bool value)
+    {
+        // Re-entered from the other tab's setter: the change is already being pushed, so nothing more to do.
+        if (_syncingTabs) return;
+        _syncingTabs = true;
+        try { OnPropertyChanged(nameof(IsMapLayersTab)); }
+        finally { _syncingTabs = false; }
+    }
 
     partial void OnHasMapChanged(bool value)
     {
