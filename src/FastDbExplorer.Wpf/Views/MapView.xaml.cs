@@ -25,6 +25,12 @@ namespace FastDbExplorer.Wpf.Views;
 /// result sets) is in <c>MapView.Tools.cs</c>.
 /// The shell keeps one map view alive and only hides/shows it, so returning to the Map section is instant; the page also reports
 /// its camera ("view"), which is sent back with the next "load" (for example after a theme change or a re-created page).
+///
+/// Life cycle rules (fixed after the crashes when the map window was closed or the Map section was opened while it was detached):
+/// 1. A WebView2 is never disposed inside the event that asked for it (a click, Closing or Unloaded): disposal is queued to a later
+///    dispatcher turn, and <see cref="Disposed"/> completes when it has really happened.
+/// 2. While the map is in its own window, the copy in the Map section does not start a WebView2 at all; it shows the note instead.
+///    It starts when the window is closed again.
 /// </summary>
 public partial class MapView : UserControl
 {
@@ -42,6 +48,7 @@ public partial class MapView : UserControl
     // At most one detached map window exists.
     private static MapWindow? _openWindow;
 
+    private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CoreWebView2Environment? _environment;
     private Task? _initTask;
     private bool _gateHeld;
@@ -54,19 +61,29 @@ public partial class MapView : UserControl
     /// <summary>True once this view's WebView2 has been released; the shell then creates a fresh view instead of reusing this one.</summary>
     internal bool IsReleased => _released;
 
+    /// <summary>Completes once this view's WebView2 has really been disposed (the detached window waits for it before it closes).</summary>
+    public Task Disposed => _disposed.Task;
+
     public MapView()
     {
         InitializeComponent();
         DataContextChanged += (_, e) => { Detach(); _viewModel = e.NewValue as MapViewModel; Attach(); };
-        Loaded += async (_, _) =>
+        Loaded += (_, _) =>
         {
             if (_released || _initTask is not null) return; // never start a second WebView2 for the same view
             Attach();
             if (_viewModel is not null) _ = _viewModel.EnsureCoordinateLayersLoadedAsync();
-            _initTask = InitializeWebAsync();
-            await _initTask;
+            StartWebIfAllowed();
         };
         Unloaded += (_, _) => ReleaseWebView();
+    }
+
+    /// <summary>Starts the WebView2 unless the map is currently shown in its own window (the copy here then only shows the note).</summary>
+    private void StartWebIfAllowed()
+    {
+        if (_released || _initTask is not null || !IsLoaded) return;
+        if (!IsDetached && _viewModel?.IsPoppedOut == true) return;
+        _initTask = InitializeWebAsync();
     }
 
     private void Attach()
@@ -110,9 +127,8 @@ public partial class MapView : UserControl
     // ---- WebView2 lifetime -------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Releases this view's WebView2 explicitly and exactly once. Called from <c>Unloaded</c>, from the pop-out command
-    /// (before the Map section is left) and from <see cref="MapWindow"/> while its window handle still exists, so the
-    /// teardown never depends on when WPF raises <c>Unloaded</c>.
+    /// Releases this view's WebView2 exactly once. The disposal itself is queued to a later dispatcher turn (rule 1 above), so
+    /// it never runs inside the click, Closing or Unloaded event that asked for it. <see cref="Disposed"/> completes afterwards.
     /// </summary>
     internal void ReleaseWebView()
     {
@@ -122,15 +138,20 @@ public partial class MapView : UserControl
         _viewModel?.SetPageReady(false);
         Detach();
 
-        // Still being created: disposing in the middle of that is unsafe, so dispose right after it has finished.
-        if (_initTask is { IsCompleted: false } pending)
+        if (Dispatcher.HasShutdownStarted)
         {
-            pending.ContinueWith(_ => DisposeWebView(), CancellationToken.None,
-                TaskContinuationOptions.None, TaskScheduler.FromCurrentSynchronizationContext());
+            _disposed.TrySetResult();
             return;
         }
 
-        DisposeWebView();
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            // Still being created: dispose only after the creation has finished (it returns at once because _released is set).
+            if (_initTask is { IsCompleted: false } pending)
+                pending.ContinueWith(_ => Dispatcher.BeginInvoke(new Action(DisposeWebView)), TaskScheduler.Default);
+            else
+                DisposeWebView();
+        }), DispatcherPriority.ApplicationIdle);
     }
 
     private void DisposeWebView()
@@ -151,6 +172,7 @@ public partial class MapView : UserControl
         finally
         {
             ReleaseGate();
+            _disposed.TrySetResult();
         }
     }
 
@@ -169,9 +191,8 @@ public partial class MapView : UserControl
 
     /// <summary>Opens the map in its own window. Both windows share this view model; this copy is released meanwhile.</summary>
     /// <remarks>
-    /// Only one WebView2 is alive at a time: this view's WebView is released first (from this command, not from a
-    /// visual-tree event), the Map section is left, the window opens after that, and when the window has completely
-    /// closed the Map section is opened again (the shell then creates a fresh map view).
+    /// Only one WebView2 is alive at a time: this view's WebView is released first, the Map section is left, the window opens and
+    /// starts its own page once the gate is free. When the window has completely closed the Map section is opened again.
     /// </remarks>
     private void OpenDetachedWindow()
     {
@@ -182,9 +203,6 @@ public partial class MapView : UserControl
         var mainWindow = Window.GetWindow(this);
         var shell = mainWindow?.DataContext as MainViewModel;
 
-        // The window object is created now (no WebView2 yet); the teardown of this view's WebView2 is NOT done inside the
-        // click that triggered it. Disposing a WebView2 while WPF is still dispatching the input event of a control that
-        // sits inside it is the suspected cause of the immediate close, so the teardown runs on a later dispatcher turn.
         var window = new MapWindow(_viewModel);
         _openWindow = window;
         window.Closed += (_, _) =>
@@ -206,10 +224,9 @@ public partial class MapView : UserControl
             {
                 ReleaseWebView();
                 // The released view leaves the visual tree: a control whose WebView2 is gone must not stay in the window.
-                if (Parent is System.Windows.Controls.Panel host) host.Children.Remove(this);
+                if (Parent is Panel host) host.Children.Remove(this);
                 shell?.NavigateCommand.Execute(AppSection.Home);
             }
-            // The new window waits for the gate, which the released view frees once its WebView2 is disposed.
             window.Show();
         }, DispatcherPriority.Background);
     }
@@ -217,6 +234,8 @@ public partial class MapView : UserControl
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MapViewModel.IsPoppedOut) or nameof(MapViewModel.HasMap)) UpdateWebVisibility();
+        // The map window was closed: this copy may start its page now (rule 2).
+        if (e.PropertyName == nameof(MapViewModel.IsPoppedOut) && _viewModel?.IsPoppedOut == false) StartWebIfAllowed();
     }
 
     /// <summary>
@@ -247,7 +266,7 @@ public partial class MapView : UserControl
         // still closing is a crash risk, so the wait is repeated after each timeout instead of starting anyway.
         while (!_gateHeld)
         {
-            if (_released) return; // DisposeWebView (queued by ReleaseWebView) frees the gate
+            if (_released) return; // the queued disposal frees the gate
             _gateHeld = await WebGate.WaitAsync(TimeSpan.FromSeconds(5));
         }
         if (_released) return;
