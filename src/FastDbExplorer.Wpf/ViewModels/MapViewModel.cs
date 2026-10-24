@@ -124,17 +124,14 @@ public sealed partial class MapViewModel : ObservableObject
     [ObservableProperty] private string _hoverText = "";
 
     /// <summary>
-    /// The other tab. It is two-way bound to a RadioButton, which writes its state back here. Setting the state that is already
-    /// current does nothing, so an echo of a change stops at once instead of starting the change again (the loop of the crash).
+    /// The map-layers tab. It is only a mirror of <see cref="IsExcelTab"/>: the two RadioButtons of the tab group change
+    /// each other, so the Excel tab alone decides the state. Writes from this side are ignored on purpose; with two-way
+    /// writes on both sides the change went round in a loop until the stack overflowed.
     /// </summary>
     public bool IsMapLayersTab
     {
         get => !IsExcelTab;
-        set
-        {
-            if (value == IsMapLayersTab) return;
-            IsExcelTab = !value;
-        }
+        set { /* intentionally ignored: see the summary above */ }
     }
 
     public string ExcelTabText => MapUiStrings.TabExcel(CoordinateLayers.Count);
