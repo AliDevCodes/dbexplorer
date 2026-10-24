@@ -8,48 +8,24 @@
   <Grid>
     <Grid.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3" /></Storyboard></BeginStoryboard></EventTrigger></Grid.Triggers>
     <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="340" />
+      <ColumnDefinition Width="300" />
       <ColumnDefinition Width="*" />
     </Grid.ColumnDefinitions>
 
-    <!-- Sidebar -->
+    <!-- Sidebar: tables only. Connection status, active database and disconnect live in the shared top bar. -->
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
       <Grid Margin="16">
         <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="2*" />
-          <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="3*" />
+          <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,18">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-          <StackPanel VerticalAlignment="Center">
-            <TextBlock Text="{Binding ServerName}" FlowDirection="LeftToRight" HorizontalAlignment="Left" FontWeight="SemiBold"
-                       FontSize="16" TextTrimming="CharacterEllipsis" />
-            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-              <Ellipse Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" VerticalAlignment="Center" />
-              <TextBlock Text="{x:Static l:Strings.ConnectedReadOnly}" Style="{StaticResource Muted}" Margin="8,0,0,0" />
-            </StackPanel>
-          </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal">
-            <Button Style="{StaticResource IconButton}" Content="&#xE774;" FontSize="16"
-                    ToolTip="{x:Static l:Strings.OpenMap}" Command="{Binding OpenMapCommand}" />
-            <Button Style="{StaticResource IconButton}" Content="&#xE7E8;" FontSize="16"
-                    ToolTip="{x:Static l:Strings.Disconnect}" Command="{Binding DisconnectCommand}" />
-          </StackPanel>
-        </Grid>
-
-        <TextBlock Grid.Row="1" Text="{x:Static l:Strings.Databases}" Style="{StaticResource FieldLabel}" />
-        <ListBox Grid.Row="2" FlowDirection="LeftToRight" ItemsSource="{Binding Databases}" SelectedItem="{Binding SelectedDatabase}">
-          <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate></ListBox.ItemTemplate>
-        </ListBox>
-
-        <Grid Grid.Row="3" Margin="0,16,0,8">
+        <Grid Grid.Row="0" Margin="0,0,0,8">
           <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <TextBlock Text="{x:Static l:Strings.Tables}" Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Center" />
           <Button Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE72C;" Padding="6" ToolTip="{x:Static l:Strings.Reload}" Command="{Binding ReloadCommand}" />
         </Grid>
 
-        <StackPanel Grid.Row="4" Margin="0,0,0,8">
+        <StackPanel Grid.Row="1" Margin="0,0,0,8">
           <Grid>
             <TextBox x:Name="SearchBox" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" FlowDirection="LeftToRight" Padding="38,9,12,9" />
             <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="{DynamicResource MutedBrush}"
@@ -62,7 +38,7 @@
           <TextBlock Text="{Binding TablesStatus}" Style="{StaticResource Muted}" Margin="2,8,0,0" />
         </StackPanel>
 
-        <ListBox Grid.Row="5" FlowDirection="LeftToRight" ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}">
+        <ListBox Grid.Row="2" FlowDirection="LeftToRight" ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}">
           <ListBox.ItemTemplate>
             <DataTemplate>
               <Grid>

@@ -12,12 +12,17 @@
 <body>
 <div id="map"></div>
 <script src="maplibre-gl.js"></script>
+<script src="coordinate-layers.js"></script>
+<script src="map-tools.js"></script>
 <script>
 // Talks to the WPF host through window.chrome.webview. Tiles come from https://tiles.local/{z}/{x}/{y}
 // (intercepted by the host and served from the opened map file, so no server and no internet are needed).
 const host = window.chrome && window.chrome.webview;
 const post = (m) => host && host.postMessage(m);
 let map = null, info = null, pendingMove = false;
+
+// Every map opens on Iran (centre [lng, lat], zoom 4.7), whatever the file covers. "Fit to map" still zooms to the file's bounds.
+const IRAN_VIEW = { center: [53.688, 32.428], zoom: 4.7 };
 
 const hue = (name) => { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
 const colorOf = (name, dark) => `hsl(${hue(name)}, 62%, ${dark ? 62 : 42}%)`;
@@ -50,7 +55,7 @@ function buildStyle(i, dark) {
     }
   }
   if (i.kind !== 'raster') addLabels(layers, i.layers, dark);
-  // Fonts are plain files in Assets/Map/fonts/<name>/<range>.pbf (downloaded by setup-map-assets.cmd), no internet at run time.
+  // Fonts are plain files in Assets/Map/fonts/<n>/<range>.pbf (downloaded by setup-map-assets.cmd), no internet at run time.
   return { version: 8, glyphs: 'https://app.local/fonts/{fontstack}/{range}.pbf', sources, layers };
 }
 
@@ -107,13 +112,18 @@ function fit(animate) {
   map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 40, duration: animate ? 600 : 0 });
 }
 
-function load(i, dark) {
+// view = the camera the user had when the map section was left ({ lng, lat, zoom }), or null for a newly opened file.
+function load(i, dark, view) {
   info = i;
   if (map) { map.remove(); map = null; }
-  const center = i.center ? [i.center[0], i.center[1]] : (i.bounds ? [(i.bounds[0] + i.bounds[2]) / 2, (i.bounds[1] + i.bounds[3]) / 2] : [0, 0]);
-  const zoom = i.center && i.center.length > 2 ? i.center[2] : Math.max(i.minZoom, 1);
-  map = new maplibregl.Map({ container: 'map', style: buildStyle(i, dark), center, zoom, attributionControl: false, renderWorldCopies: false, maxZoom: 22 });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-left');
+  // A newly opened file starts on Iran (see IRAN_VIEW); coming back to the map section restores the last camera.
+  // The file's own centre/bounds are only used by "Fit to map".
+  const restored = view && Number.isFinite(view.lng) && Number.isFinite(view.lat) && Number.isFinite(view.zoom);
+  const start = restored ? { center: [view.lng, view.lat], zoom: view.zoom } : IRAN_VIEW;
+  map = new maplibregl.Map({ container: 'map', style: buildStyle(i, dark), center: start.center, zoom: start.zoom,
+    attributionControl: false, renderWorldCopies: false, maxZoom: 22 });
+  // Zoom in/out + compass sit at the top RIGHT of the map (the window buttons are top right too; the app icon/name are top left).
+  map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map.on('mousemove', (e) => {
     if (pendingMove) return;
@@ -121,7 +131,13 @@ function load(i, dark) {
     requestAnimationFrame(() => { pendingMove = false; post({ type: 'cursor', lng: e.lngLat.lng, lat: e.lngLat.lat }); });
   });
   map.on('zoom', () => post({ type: 'zoom', zoom: map.getZoom() }));
-  map.on('load', () => { if (i.bounds && !i.center) fit(false); post({ type: 'zoom', zoom: map.getZoom() }); });
+  // The host keeps the last camera so the map looks the same after the user visits another section and comes back.
+  map.on('moveend', () => { const c = map.getCenter(); post({ type: 'view', lng: c.lng, lat: c.lat, zoom: map.getZoom() }); });
+  map.on('load', () => { post({ type: 'zoom', zoom: map.getZoom() }); });
+  // Excel coordinate layers (coordinate-layers.js) are redrawn on every new map.
+  if (typeof coordAttach === 'function') coordAttach(map, dark);
+  // Map tools (map-tools.js): go to coordinates, pick coordinates, measure distance. Attached after the coordinate layers, so they draw on top.
+  if (typeof toolsAttach === 'function') toolsAttach(map, dark);
 }
 
 function setLayerVisible(name, visible) {
@@ -143,9 +159,11 @@ if (typeof maplibregl === 'undefined') {
 } else if (host) {
   host.addEventListener('message', (e) => {
     const m = e.data;
-    if (m.type === 'load') load(m.info, m.dark);
+    if (m.type === 'load') load(m.info, m.dark, m.view);
     else if (m.type === 'layer') setLayerVisible(m.name, m.visible);
     else if (m.type === 'fit') fit(true);
+    else if (typeof m.type === 'string' && m.type.startsWith('coord') && typeof coordHandle === 'function') coordHandle(m);
+    else if (typeof m.type === 'string' && m.type.startsWith('tool') && typeof toolsHandle === 'function') toolsHandle(m);
   });
   post({ type: 'ready' });
 }

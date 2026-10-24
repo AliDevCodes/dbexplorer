@@ -1,11 +1,11 @@
-using FastDbExplorer.Domain;
+﻿using FastDbExplorer.Domain;
 
 namespace FastDbExplorer.Wpf.Localization;
 
 /// <summary>All user-facing text. Moving to .resx later only requires changing this file.</summary>
 public static class Strings
 {
-    public const string Tagline = "کاوشگر سریع و امن پایگاه‌داده";
+    public const string Tagline = "کاوش داده، نقشه و پایش؛ در یک برنامه";
     public const string Brand1 = "فقط‌خواندنی: هیچ دستور تغییری روی پایگاه‌داده اجرا نمی‌شود.";
     public const string Brand2 = "طراحی‌شده برای جدول‌های بسیار بزرگ، با کمترین فشار روی سرور.";
     public const string Brand3 = "رمز عبور هرگز روی دیسک ذخیره نمی‌شود.";
@@ -60,9 +60,55 @@ public static class Strings
     public const string PickOrderColumn = "ستون مرتب‌سازی (جدول کلید اصلی ندارد)";
     public const string ResultHint = "ستون‌ها و فیلترها را تنظیم کنید و «اجرا» را بزنید.";
     public const string NoResults = "نتیجه‌ای یافت نشد.";
+    public const string ExportExcel = "خروجی Excel";
+    public const string ExportCompleted = "خروجی Excel ذخیره شد: {0} ({1:N0} ردیف)";
+    public const string SendAllToMap = "ارسال همه‌ی نتایج به نقشه";
+    public const string ErrSendingToMap = "ارسال به نقشه انجام نشد: ";
+    public static string ResultCounting(long total) => $"در حال شمارش… {total:N0} تاکنون";
+    public static string ResultFound(long total) => $"{total:N0} رکورد یافت شد";
+    public static string MapSendingProgress(int scanned) => $"بررسی برای نقشه: {scanned:N0} رکورد";
+    public static string MapSentAll(int points, int skipped) =>
+        $"{points:N0} نقطه روی نقشه ارسال شد؛ {skipped:N0} رکورد بدون مختصات معتبر کنار گذاشته شد.";
+    public static string MapSentLimited(int points) =>
+        $"فقط {points:N0} نقطه (سقف ارسال) روی نقشه آمد. برای نتیجه‌ی کامل، جستجو را دقیق‌تر کنید.";
+    public const string ExportFailed = "ساخت فایل Excel انجام نشد: ";
+    public const string ShowSelectedOnMap = "نمایش ردیف‌های انتخاب‌شده روی نقشه";
+    public const string MapTooltipColumns = "جزئیات نشانگر نقشه";
+    public const string MapTooltipColumnsHint = "حداکثر ۸ ستون برای نمایش هنگام رفتن موس روی نقطه";
+    public const string LatitudeColumn = "عرض جغرافیایی";
+    public const string LongitudeColumn = "طول جغرافیایی";
+    public const string ErrSelectRows = "ابتدا یک یا چند ردیف را انتخاب کنید.";
+    public const string ErrPickCoordinateColumns = "ستون‌های عرض و طول جغرافیایی را انتخاب کنید.";
+    public const string ErrNoValidCoordinates = "در ردیف‌های انتخاب‌شده مختصات معتبر پیدا نشد.";
     public const string ToggleSettings = "نمایش یا پنهان‌کردن تنظیمات";
     public const string ValueTip = "مقدار";
     public const string Value2Tip = "تا مقدار";
+    public const string PersianDateTimePickerHint = "تاریخ شمسی و ساعت/دقیقه را انتخاب کنید؛ ثانیه خودکار ۰۰ است و مقدار جست‌وجو میلادی ذخیره می‌شود.";
+    public const string PersianDateTimePickerTooltip = "انتخاب تاریخ شمسی و ساعت/دقیقه";
+    public const string PersianDateTimePickerTime = "زمان";
+    public const string PersianDateTimePickerHour = "ساعت";
+    public const string PersianDateTimePickerMinute = "دقیقه";
+    public const string PersianDateTimePickerInvalidTime = "ساعت ۰۰ تا ۲۳ و دقیقه ۰۰ تا ۵۹ وارد کنید.";
+    public const string PersianDateTimePickerToday = "امروز";
+    public const string PersianDateTimePickerClear = "پاک کردن";
+    public const string PersianDateTimePickerCancel = "لغو";
+    public const string PersianDateTimePickerApply = "تأیید";
+    public const string PersianDateTimePickerMonth = "انتخاب ماه";
+    public const string PersianDateTimePickerYear = "انتخاب سال";
+    public const string PersianDateTimePickerPreviousMonth = "ماه قبل";
+    public const string PersianDateTimePickerNextMonth = "ماه بعد";
+    public const string PersianDateTimePickerIncreaseHour = "افزایش ساعت";
+    public const string PersianDateTimePickerDecreaseHour = "کاهش ساعت";
+    public const string PersianDateTimePickerIncreaseMinute = "افزایش دقیقه";
+    public const string PersianDateTimePickerDecreaseMinute = "کاهش دقیقه";
+    public static IReadOnlyList<string> PersianMonthNames { get; } =
+    [
+        "", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+        "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+    ];
+    public static IReadOnlyList<string> PersianWeekdayNames { get; } =
+        ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"];
+    public static IReadOnlyList<string> PersianWeekdayLabels { get; } = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
     public const string ErrNoColumns = "حداقل یک ستون را انتخاب کنید.";
     public const string ErrIncompleteFilter = "یکی از فیلترها ناقص است؛ ستون و مقدار را کامل کنید یا آن را حذف کنید.";
     public const string ErrPickOrder = "برای صفحه‌بندی یک ستون مرتب‌سازی انتخاب کنید.";
@@ -78,6 +124,7 @@ public static class Strings
     public const string NoVectorLayers = "این نقشه تصویری است و لایه‌ی جداگانه ندارد.";
     public const string MapEmptyTitle = "یک فایل نقشه باز کنید";
     public const string MapEmptyBody = "فرمت‌های پشتیبانی‌شده: MBTiles (وکتور و تصویری)، GMDB (کش تصویری GMap.NET)، PBF (نیازمند تبدیل). فایل را به این صفحه بکشید یا از دکمه‌ی زیر انتخاب کنید.";
+    public const string MapQueryPending = "ردیف‌های انتخاب‌شده آماده‌اند؛ برای نمایش نقاط، یک فایل نقشه باز کنید.";
     public const string Zoom = "بزرگ‌نمایی";
     public const string LoadingMap = "در حال خواندن فایل نقشه…";
     public const string AssetsMissingTitle = "موتور نقشه نصب نشده است";
@@ -104,7 +151,19 @@ public static class Strings
             "سرور در دسترس نیست. آدرس، پورت، فایروال و فعال‌بودن پروتکل TCP/IP را بررسی کنید. "
             + "(اتصال به localhost از طریق Shared Memory انجام می‌شود، اما 127.0.0.1 حتماً به TCP/IP نیاز دارد.)"
             + Environment.NewLine + ex.Message,
-        DatabaseErrorKind.Timeout => "مهلت اجرا به پایان رسید (۳۰ ثانیه). فیلترها را دقیق‌تر کنید.",
+        DatabaseErrorKind.Timeout => "سرور مهلت اجرای کوئری را به پایان رساند. فیلترها را دقیق‌تر کنید یا جدول را ایندکس‌گذاری کنید.",
+        DatabaseErrorKind.PagingNotSupported =>
+            "این نسخه یا سطح سازگاری SQL Server صفحه‌بندی را پشتیبانی نمی‌کند. جزئیات تشخیص و حداقل نیازمندی‌ها:" + Environment.NewLine
+            + ex.Message + Environment.NewLine
+            + "برنامه هیچ تغییری در پایگاه‌داده ایجاد نکرده است؛ برای ادامه، نسخه یا سطح سازگاری را با مدیر سرور بررسی کنید.",
+        DatabaseErrorKind.PagingDetectionFailed =>
+            "برنامه نتوانست نسخه سرور و سطح سازگاری این پایگاه‌داده را با پرس‌وجوی فقط‌خواندنی تشخیص دهد؛ برای جلوگیری از اجرای روش ناسازگار، جستجو متوقف شد." + Environment.NewLine
+            + ex.Message + Environment.NewLine
+            + "هیچ تغییری در پایگاه‌داده ایجاد نشده است.",
+        DatabaseErrorKind.PagingFallbackFailed =>
+            "روش جایگزین صفحه‌بندی (فقط‌خواندنی) هم اجرا نشد. نسخه و سطح سازگاری تشخیص‌داده‌شده و خطای دقیق سرور:" + Environment.NewLine
+            + ex.Message + Environment.NewLine
+            + "هیچ تغییری در پایگاه‌داده ایجاد نشده است.",
         _ => "خطای پایگاه‌داده: " + ex.Message
     };
 }

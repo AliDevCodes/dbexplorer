@@ -1,5 +1,4 @@
 using System.Data;
-using System.Text;
 using FastDbExplorer.Domain;
 
 namespace FastDbExplorer.Infrastructure;
@@ -9,8 +8,8 @@ public sealed record QueryParameter(string Name, SqlDbType Type, object Value);
 public sealed record BuiltQuery(string Sql, IReadOnlyList<QueryParameter> Parameters);
 
 /// <summary>
-/// Builds a parameterized SELECT. Rules: identifiers only come from the real column list and are bracket-quoted;
-/// values are never concatenated into SQL; no SELECT *; always ORDER BY + FETCH.
+/// Builds a parameterized SELECT. Identifiers come from the real column list and are bracket-quoted;
+/// values are never concatenated into SQL; no SELECT *; paging always has a deterministic ORDER BY.
 /// It asks for pageSize + 1 rows so the caller can tell whether a next page exists without COUNT(*).
 /// </summary>
 public static class SelectQueryBuilder
@@ -21,7 +20,8 @@ public static class SelectQueryBuilder
 
     public static string Quote(string identifier) => "[" + identifier.Replace("]", "]]") + "]";
 
-    public static BuiltQuery Build(PageRequest request, IReadOnlyList<ColumnInfo> tableColumns)
+    public static BuiltQuery Build(
+        PageRequest request, IReadOnlyList<ColumnInfo> tableColumns, bool supportsOffsetFetch = true)
     {
         var byName = tableColumns.ToDictionary(c => c.Name, StringComparer.Ordinal);
         ColumnInfo Col(string name) =>
@@ -29,7 +29,8 @@ public static class SelectQueryBuilder
 
         if (request.Columns.Count == 0) throw new ArgumentException("Select at least one column.");
         if (request.OrderBy.Count == 0) throw new ArgumentException("An ORDER BY column is required for paging.");
-        if (request.Filters.Count > MaxFilters) throw new ArgumentException($"At most {MaxFilters} filters are allowed.");
+        if (request.Filters.Count + (request.RequiredFilters?.Count ?? 0) > MaxFilters)
+            throw new ArgumentException($"At most {MaxFilters} filters are allowed.");
         if (request.AfterKey is not null && (!request.UseKeyset || request.AfterKey.Length != request.OrderBy.Count))
             throw new ArgumentException("Invalid keyset position.");
 
@@ -42,29 +43,60 @@ public static class SelectQueryBuilder
             return name;
         }
 
-        var select = request.Columns.Select(c => Quote(Col(c).Name)).ToList();
+        var visibleColumns = request.Columns.Select(c => Quote(Col(c).Name)).ToList();
+        var usedAliases = new HashSet<string>(request.Columns.Select(c => Col(c).Name), StringComparer.OrdinalIgnoreCase);
+        var select = visibleColumns.ToList();
+        var keyAliases = new List<string>();
         if (request.UseKeyset)
             for (var i = 0; i < request.OrderBy.Count; i++)
-                select.Add($"{Quote(Col(request.OrderBy[i]).Name)} AS [__k{i}]"); // lets the caller read the last key
+            {
+                var alias = Quote(UniqueAlias($"__k{i}", usedAliases));
+                keyAliases.Add(alias);
+                select.Add($"{Quote(Col(request.OrderBy[i]).Name)} AS {alias}"); // lets the caller read the last key
+            }
 
         var where = new List<string>();
         var filters = request.Filters.Select(f => BuildFilter(f, Col(f.Column), Add)).ToList();
         if (filters.Count > 0)
             where.Add("(" + string.Join(request.Logic == FilterLogic.And ? " AND " : " OR ", filters) + ")");
+        if (request.RequiredFilters is { Count: > 0 })
+            where.AddRange(request.RequiredFilters.Select(f => BuildFilter(f, Col(f.Column), Add)).ToList());
         if (request.AfterKey is not null)
             where.Add(BuildKeyset(request, Col, Add));
 
-        var sql = new StringBuilder($"SELECT {string.Join(", ", select)} FROM {Quote(request.Schema)}.{Quote(request.Table)}");
-        if (where.Count > 0) sql.Append(" WHERE ").Append(string.Join(" AND ", where));
-
         var orderBy = string.Join(", ", request.OrderBy.Select(c => Quote(Col(c).Name) + " ASC"));
-        sql.Append($" ORDER BY {orderBy} OFFSET {(request.AfterKey is null ? "@offset" : "0")} ROWS FETCH NEXT @take ROWS ONLY");
+        var from = $"{Quote(request.Schema)}.{Quote(request.Table)}";
+        var whereSql = where.Count > 0 ? " WHERE " + string.Join(" AND ", where) : "";
+        var outputColumns = visibleColumns.Concat(keyAliases).ToList();
+        string sql;
 
-        if (request.AfterKey is null)
-            parameters.Add(new QueryParameter("@offset", SqlDbType.BigInt, Math.Max(0, request.Offset)));
-        parameters.Add(new QueryParameter("@take", SqlDbType.Int, pageSize + 1));
+        if (supportsOffsetFetch)
+        {
+            var offset = request.AfterKey is null ? "@offset" : "0";
+            sql = $"SELECT {string.Join(", ", select)} FROM {from}{whereSql} ORDER BY {orderBy} OFFSET {offset} ROWS FETCH NEXT @take ROWS ONLY";
+            if (request.AfterKey is null)
+                parameters.Add(new QueryParameter("@offset", SqlDbType.BigInt, Math.Max(0, request.Offset)));
+            parameters.Add(new QueryParameter("@take", SqlDbType.Int, pageSize + 1));
+        }
+        else
+        {
+            var rowNumberAlias = Quote(UniqueAlias("__fdb_row_number", usedAliases));
+            var inner = $"SELECT {string.Join(", ", select)}, ROW_NUMBER() OVER (ORDER BY {orderBy}) AS {rowNumberAlias} FROM {from}{whereSql}";
+            var offset = request.AfterKey is null ? Math.Max(0, request.Offset) : 0;
+            parameters.Add(new QueryParameter("@offset", SqlDbType.BigInt, offset));
+            parameters.Add(new QueryParameter("@take", SqlDbType.Int, pageSize + 1));
+            sql = $"SELECT {string.Join(", ", outputColumns)} FROM ({inner}) AS [__fdb_page] WHERE {rowNumberAlias} > @offset AND {rowNumberAlias} <= @offset + @take ORDER BY {rowNumberAlias}";
+        }
 
-        return new BuiltQuery(sql.ToString(), parameters);
+        return new BuiltQuery(sql, parameters);
+    }
+
+    private static string UniqueAlias(string candidate, HashSet<string> used)
+    {
+        var alias = candidate;
+        var suffix = 1;
+        while (!used.Add(alias)) alias = $"{candidate}_{suffix++}";
+        return alias;
     }
 
     private static string BuildKeyset(PageRequest r, Func<string, ColumnInfo> col, Func<SqlDbType, object, string> add)
