@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "project": "FastDbExplorer",
+  "branch": "feature/geosent-live-map",
+  "commit": "see git log (head of branch at documentation time)",
+  "base_commit_for_docs": "626660a",
+  "task": "adopt project-brain operating model (documentation only)",
+  "status": "documentation_in_progress",
+  "completed": [
+    "map tab state loop fixed (8416448)",
+    "filter row null fixed (15038c3), owner test pending",
+    "map window crash fixes (4f427d8 and earlier), owner test pending",
+    "shared map send panel",
+    "smart export xlsx or split csv, tests",
+    "monitoring renamed in the UI",
+    "project brain v1 (626660a)"
+  ],
+  "remaining": [
+    "owner test of latest slices",
+    "phase R1 ViewModel tests (needs approval)",
+    "phases R2 to R7 (need approval)",
+    "owner decisions: date format, CSV delimiter, demo login",
+    "pin NuGet versions, resolve Pkcs advisory",
+    "OSM PBF converter (not started)"
+  ],
+  "changed_files": [
+    "CLAUDE.md",
+    "docs/PROJECT_BRAIN.md",
+    ".ai/*",
+    "docs/architecture/*",
+    "docs/features/index.md",
+    "docs/changes/change-map.md",
+    "docs/decisions/*",
+    "docs/junior-guide.md"
+  ],
+  "validation": [
+    "owner: 204/204 tests at last full run (before latest UI slices)",
+    "AI: static review only, no build"
+  ],
+  "known_issues": [
+    "ViewModels and Views untested",
+    "MapViewModel and TableQueryViewModel large",
+    "presentation data and JSON attribute in Domain",
+    "Pkcs 9.0.11 advisory (transitive)",
+    "date format inconsistent between Explorer and Monitoring"
+  ],
+  "assumptions": [
+    "module inventory matches the branch at documentation time (needs verification with git ls-files)"
+  ],
+  "next_action": "owner reports test results of latest slices; then approve or reject phase R1"
+}
