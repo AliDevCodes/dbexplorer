@@ -10,7 +10,7 @@ Start with `junior-guide.md`. This page says what each folder and file is for, a
 | `features/` | one page per feature: behaviour, limits, owner test procedure; `index.md` is the feature map | "What does feature Y do and what can go wrong?" |
 | `changes/` | change routing (`change-map.md`) and the document update procedure (`doc-update-protocol.md`) | "Where do I change Z, and which docs must I update?" |
 | `reference/` | facts and logs: decision log, lessons learned, map formats, known issues | "What is the rule or the fact about W?" |
-| `guides/` | how to operate the app: runbook, build and release | "How do I run, build or ship it?" |
+| `guides/` | how to operate the app: runbook (build, test, run, ship, crash log) | "How do I run, build or ship it?" |
 | `release/` | release history (`CHANGELOG.md`) | "What changed in each version?" |
 
 ## Where to start
@@ -20,13 +20,7 @@ Start with `junior-guide.md`. This page says what each folder and file is for, a
 4. `changes/change-map.md` — where your change belongs.
 5. `changes/doc-update-protocol.md` — which documents to update after your change.
 
-## Status of the reorganisation
-| File | Status |
-|---|---|
-| `junior-guide.md`, `architecture/*`, `decisions/*`, `features/*`, `changes/*`, `reference/*` | in place |
-| `RUNBOOK.md` | still in the root; move to `guides/runbook.md` (next step) |
-| `CHANGELOG.md` | still in the root; move to `release/CHANGELOG.md` (next step) |
-| `REVIEW_2026-10.md` | still in the root; move to `architecture/review-2026-10.md` (next step) |
-| Nine feature pages (`CREDENTIALS.md`, `MONITORING.md`, ...) | moved to `features/`; the root copies are deleted in the commits that follow this one |
+## Status
+The reorganisation of 2026-10-25 is complete. The root of `docs/` contains only `README.md` and `junior-guide.md`, and the seven folders above.
 
-The reorganisation proceeds in steps so that no content is lost and no link breaks.
+Files removed during the reorganisation (their content is in the new location; git keeps the history): `ARCHITECTURE.md`, `CODE_MAP.md`, `PROJECT_MASTER_CONTEXT.md`, `DECISIONS.md`, `KNOWN_ISSUES.md`, `PROJECT_BRAIN.md`, `CURRENT_STATE.md`, `PROGRESS.md`, `FEATURES.md`, the nine feature pages, `RUNBOOK.md`, `CHANGELOG.md`, `REVIEW_2026-10.md`.
