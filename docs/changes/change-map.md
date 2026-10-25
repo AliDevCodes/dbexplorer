@@ -2,102 +2,85 @@
 
 Purpose: route a change to the smallest relevant scope. Read this before editing.
 
-## Feature / Area: Explorer query
-### If changing business rules (filter meaning, order, paging rule)
-Location: `Infrastructure/SelectQueryBuilder.cs`, `Application` filter records, `TableQueryViewModel.TryBuildRequest`.
-Tests: `QueryBuilderTests`; add a ViewModel test when R1 exists.
-Docs: `docs/features/index.md`, master context §5 (paging).
+## Explorer query
+### If changing business rules (filter meaning, order, paging)
+Location: `Domain/FilterOperatorRules.cs` (operator inputs), `Domain/QueryModels.cs` (`FilterOperator`, `ColumnInfo`), `Infrastructure/SelectQueryBuilder.cs` (SQL), `TableQueryViewModel.TryBuildRequest` (request).
+Tests: `FilterOperatorRulesTests`, `QueryBuilderTests`.
+Docs: `docs/features/index.md`, `docs/architecture/runtime-flows.md`.
 
-### If changing API (contracts between layers)
+### If changing the API (contracts between layers)
 Location: `src/FastDbExplorer.Application/Abstractions/*.cs`.
-Contract: all implementations in `Infrastructure` must change in the same commit.
-Tests: `InfrastructureTests`.
-Docs: `docs/architecture/dependency-map.md` (contracts list).
+Rule: every implementation in Infrastructure changes in the same commit.
+Tests: `InfrastructureTests`. Docs: `docs/architecture/dependency-map.md`.
 
 ### If changing persistence (JSON files, profiles, layers, monitors)
-Location: the relevant `Json*Store` in `Infrastructure`.
-Compatibility: old files must still load (optional fields; unknown values dropped, never fatal). Note the change in the file's header comment and in `docs/features/index.md`.
-Tests: round-trip tests in `InfrastructureTests`, `MapMarkerCatalogTests`.
+Location: the relevant `Json*Store` in Infrastructure.
+Compatibility: old files must still load (optional fields with defaults; unknown values dropped, never fatal).
+Tests: round-trip tests (`JsonCoordinateLayerStoreTests`, `InfrastructureTests`).
 
 ### If changing UI (view, layout, texts)
 Location: `Views/*.xaml` and code-behind; texts in `Localization/*.cs`; colours only through `Themes/*`.
-States: loading, empty, error, success. Check light and dark and RTL.
+States: loading, empty, error, success, disabled. Check light, dark and right-to-left.
 Tests: none automated; owner checklist in `docs/features/index.md`.
-Visual checks: owner screenshot in the change report.
 
-### Must Not Change (protected boundaries)
-- Read-only guard and its call sites.
-- Parameter-only value handling.
-- DPAPI scope (CurrentUser) and the rule that passwords never go to JSON.
-- Single WebView2 at a time (`WebGate`) and deferred disposal (ADR-0004).
-- The map page's network rule (no fetch at run time).
-
-## Feature / Area: Explorer export
-### If changing the format rule (when xlsx vs csv)
+## Explorer export
+### If changing the format rule (xlsx or csv)
 Location: `Application/Abstractions/ExportAbstractions.cs` (`ExportLimits`), `Infrastructure/Monitoring/XlsxReportWriter.cs`, `CsvPartsWriter.cs`.
-Tests: `QueryExportTests` (update the expected numbers with the limits).
+Tests: `QueryExportTests` (update the expected numbers).
 Docs: `docs/EXPORT_AND_LAYOUT.md`.
 
 ### If changing the CSV delimiter or encoding
 Location: `CsvPartsWriter.cs` only. Decision pending (see `.ai/current-state.md`).
-Tests: `QueryExportTests` (BOM and quoting test).
 
-## Feature / Area: Map
-### If adding a new file format
-Location: `Infrastructure/Maps/MapSourceFactory.cs` (detection), a new `IMapSource` implementation, `Domain/MapModels.cs` for kinds and errors.
-Tests: `MapSourceTests` with a small sample file.
-Docs: `docs/MAP_UI.md`, master context §9 (format table).
+## Map
+### If adding a file format
+Location: `Infrastructure/Maps/MapSourceFactory.cs`, a new `IMapSource`, `Domain/MapModels.cs` for kinds and errors.
+Tests: `MapSourceTests` with a small sample file. Docs: `docs/reference/map-formats.md`.
 
-### If adding a new message between C# and the page
-Location: C# side in `Views/MapView.xaml.cs` (`OnMessage`) or `Views/MapView.Tools.cs`; page side in `Assets/Map/*.js`; host push in `MapView.Post*`.
-Rule: name the message in both places; add a `default` branch or a log line for unknown messages; document the message in `docs/features/index.md` and `docs/dependency-map` (cross-module contracts).
-Tests: none automated (owner checklist). Static check: every `type` sent from JS has a case in C#.
+### If adding a message between C# and the page
+Location: C# in `Views/MapView.xaml.cs` (`OnMessage`) or `Views/MapView.Tools.cs`; page in `Assets/Map/*.js`.
+Rule: name the message on both sides; log unknown messages; document it in `docs/reference/map-formats.md` (page contract).
 
-### If changing map tools (go-to, pick, measure, my points)
-Location: `Assets/Map/map-tools.js` (behaviour), `MapViewModel.Tools.cs` (saving "my points"), `MapToolStrings.cs` (texts).
-Docs: `docs/MAP_TOOLS.md`.
+### If changing map tools (go to, pick, measure, my points)
+Location: `Assets/Map/map-tools.js`, `MapViewModel.Tools.cs`, `MapToolStrings.cs`. Docs: `docs/MAP_TOOLS.md`.
+
+### If changing geometry (radius circles, bounds, coordinates)
+Location: `Domain/GeoMath.cs`, `Domain/CoordinateLayers.cs`.
+Tests: `CoordinateRenderingTests`, `CoordinateLayerTests`. Decision: ADR-0006 (do not change the sphere radius or the segment count without a new ADR).
 
 ### If changing the pop-out window or WebView2 lifecycle
 Location: `Views/MapView.xaml.cs` (`ReleaseWebView`, `OpenDetachedWindow`), `Views/MapWindow.xaml.cs`, `MainWindow.xaml.cs` (`SyncMapHost`).
-Rules: never dispose inside the event that asked for it; one WebView2 at a time; the Map section copy shows the note while the window is open.
-Docs: ADR-0004, `docs/MAP_UI.md`.
+Rules: no disposal inside the event that asked for it; one WebView2 at a time; the Map section copy shows the note while the window is open. ADR-0004.
 Tests: owner checklist (close with dock button; click Map in the rail while the window is open).
 
-### Must Not Change
-- Coordinate rules in `CoordinateRules` (WGS84, metres for radius).
-- Map page must not fetch from the internet.
-
-## Feature / Area: Monitoring
+## Monitoring
 ### If changing the check rule (new rows, watermark)
 Location: `Infrastructure/Monitoring/WatermarkComparer.cs`, `SqlServerWatermarkReader.cs`, `MonitorCheckService.cs`.
-Tests: add unit tests in `Tests` for the comparer before changing it.
+Tests: `MonitoringTests` (map the rule's coverage first).
 Docs: `docs/MONITORING.md`.
 
-### If changing a monitor's fields (new setting)
-Location: `Domain/MonitoringModels.cs` (`MonitorDefinition`), `JsonMonitorStore` (optional field with default), `MonitorEditorViewModel` and `Views/MonitorEditorView.*`, `MonitoringStrings.cs`.
+### If changing a monitor field
+Location: `Domain/MonitoringModels.cs` (`MonitorDefinition`), `JsonMonitorStore` (optional field with default), `MonitorEditorViewModel`, `Views/MonitorEditorView.*`, `MonitoringStrings.cs`.
 Compatibility: old monitor files must load with the default.
 
-### If changing proximity or alerts
-Location: `MonitorProximity` (Domain), `MonitorCheckService`, `AlertNotifier`.
-Tests: distance tests (add them first).
-
-## Feature / Area: Connections and passwords
+## Connections and passwords
 ### If changing the password flow
-Location: `ConnectionViewModel` (state), `Views/ConnectionsView.xaml` (fields), `DpapiCredentialVault`.
-Rules: no password in JSON; vault write before profile save; failed login clears the stored password; server/user change clears it.
-Tests: `CredentialVaultTests`; add ViewModel tests in R1.
-Docs: `docs/CREDENTIALS.md`, ADR-0003.
+Location: `ConnectionViewModel`, `Views/ConnectionsView.xaml`, `DpapiCredentialVault`.
+Rules: no password in JSON; vault write before profile save; a failed login clears the stored password; a server or user change clears it.
+Tests: `CredentialVaultTests`. Docs: `docs/CREDENTIALS.md`, ADR-0003.
 
-## Feature / Area: Shared UI rules (any screen)
-### If adding a ViewModel property used by two controls
-Rule: one source of truth (ADR-0005). Derived state is read-only. No TwoWay on derived properties.
+## Shared UI rules (any screen)
+- ViewModel property used by two controls: one source of truth (ADR-0005). Derived state is read-only.
+- ComboBox that must not be null: null-safe setter that reverts to a default (lesson N2).
+- A rule that a test should cover: move it to Domain first (ADR-0007).
 
-### If adding a ComboBox bound to a value that must not be null
-Rule: null-safe setter that reverts to a default (ADR-0005, lesson N2).
+## Must not change (protected boundaries)
+- Read-only guard and its call sites.
+- Parameter-only value handling.
+- DPAPI scope (CurrentUser) and the rule that passwords never go to JSON.
+- Single WebView2 at a time and deferred disposal (ADR-0004).
+- The map page's network rule (no fetch at run time).
+- Coordinate rules and the sphere radius of ADR-0006.
 
 ## Before every commit (checklist)
-1. Usings of new files checked.
-2. XAML resource keys and `Strings.X` checked.
-3. `x:Name` used in code-behind exists.
-4. Docs listed in this map updated.
-5. `.ai/change-manifest.md` and `.ai/current-state.md` updated.
+1. Usings of new files checked. 2. XAML resource keys and `Strings.X` checked. 3. `x:Name` used in code-behind exists. 4. Search before create done (lesson N11). 5. Docs in this map updated. 6. `.ai/change-manifest.md` and `.ai/current-state.md` updated. 7. Commit message says "not compiled" if the owner has not built it.
