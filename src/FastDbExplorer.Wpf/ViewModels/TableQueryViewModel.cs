@@ -50,11 +50,9 @@ public sealed partial class ColumnItem(ColumnInfo info) : ObservableObject
 
 public sealed partial class TableQueryViewModel : ObservableObject
 {
-    private const long KeysetThreshold = 10_000;
+    private const long KeysetThreshold = KeysetPaging.Threshold;
     private const int DefaultSelectedColumns = 20;
-    private const int MaxMapDetailColumns = 8;
-    private const int MaxMapDetailValueLength = 240;
-    private const int MaxMapDetailTotalLength = 1_200;
+    private const int MaxMapDetailColumns = MapSendRules.MaxDetailColumns;
 
     private sealed record PageCursor(long Offset, object?[]? AfterKey);
 
@@ -212,7 +210,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
     {
         if (_base is null || _lastResult is null) return;
         var offset = _current.Offset + _base.PageSize;
-        var useKey = _base.UseKeyset && _lastResult.LastKey is not null && offset >= KeysetThreshold;
+        var useKey = KeysetPaging.UseKeyset(_base.UseKeyset, offset, _lastResult.LastKey is not null);
         var next = new PageCursor(offset, useKey ? _lastResult.LastKey : null);
         var fetched = await FetchAsync(next);
         if (fetched is null) return;
@@ -542,31 +540,19 @@ public sealed partial class TableQueryViewModel : ObservableObject
 
     private IReadOnlyDictionary<string, string>? BuildMapDetails(GridRow row) => BuildMapDetails(row.MapValues);
 
+    /// <summary>The selected detail columns with their readable values; the limits are in Domain (MapSendRules).</summary>
     private IReadOnlyDictionary<string, string>? BuildMapDetails(IReadOnlyDictionary<string, object?> values)
     {
-        var details = new Dictionary<string, string>(StringComparer.Ordinal);
-        var totalLength = 0;
-        foreach (var column in MapDetailColumns.Where(item => item.IsSelected).Take(MaxMapDetailColumns))
-        {
-            if (!values.TryGetValue(column.Name, out var rawValue)) continue;
-            var key = TruncateMapText(column.Name, 80);
-            var remaining = MaxMapDetailTotalLength - totalLength - key.Length;
-            if (remaining <= 0) break;
-            var value = TruncateMapText(CreateCell(rawValue).FullValue, Math.Min(MaxMapDetailValueLength, remaining));
-            details[key] = value;
-            totalLength += key.Length + value.Length;
-        }
-        return details.Count == 0 ? null : details;
+        var columns = MapDetailColumns
+            .Where(item => item.IsSelected)
+            .Select(column => (
+                Name: column.Name,
+                FullValue: values.TryGetValue(column.Name, out var raw) ? CreateCell(raw).FullValue : null))
+            .ToList();
+        return MapSendRules.BuildDetails(columns);
     }
 
-    private static string TruncateMapText(string value, int maxLength)
-    {
-        if (value.Length <= maxLength) return value;
-        var length = Math.Max(0, maxLength - 1);
-        if (length > 0 && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
-            length--;
-        return value[..length] + "…";
-    }
+    private static string TruncateMapText(string value, int maxLength) => MapSendRules.TruncateText(value, maxLength);
 
     /// <summary>Turns the filter rows of the screen into a page request. The rules are in Domain (FilterRequestBuilder).</summary>
     private bool TryBuildRequest(out PageRequest request, out IReadOnlyList<string> displayColumns)
@@ -709,22 +695,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
         return matches.OrderBy(match => match.Rank).ThenBy(match => match.Index).Select(match => match.Name).FirstOrDefault();
     }
 
-    private static bool TryCoordinate(object? value, out double coordinate)
-    {
-        coordinate = 0;
-        if (value is null or DBNull) return false;
-        if (value is string text)
-        {
-            text = string.Concat(text.Select(c =>
-            {
-                var digit = CharUnicodeInfo.GetDecimalDigitValue(c);
-                return digit is >= 0 and <= 9 ? (char)('0' + digit) : c;
-            })).Trim();
-            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out coordinate);
-        }
-        try { coordinate = Convert.ToDouble(value, CultureInfo.InvariantCulture); return double.IsFinite(coordinate); }
-        catch (Exception ex) when (ex is InvalidCastException or FormatException or OverflowException) { return false; }
-    }
+    private static bool TryCoordinate(object? value, out double coordinate) => MapSendRules.TryCoordinate(value, out coordinate);
 
     private static string FormatDateTimeCell(DateTime value)
     {
