@@ -1,38 +1,40 @@
 # AI Handoff
 
 ## Current Goal
-Keep FastDbExplorer stable and changeable, following the senior-engineer standards. Domain first: move business rules out of the view models, one slice at a time, and keep the documents in step with each change.
+Keep FastDbExplorer stable and changeable, following the senior-engineer standards. Domain first: business rules out of view models, one slice at a time; documents updated with every change.
 
 ## Repository State
 Branch: feature/geosent-live-map. Commit: head of the branch (see `.ai/current-state.md`).
 
-## Completed
-- Filter operator rules in Domain (5818b9d), tested by the owner (build and tests passed).
-- Documentation structure and index (`docs/README.md`), update procedure (`docs/changes/doc-update-protocol.md`), decision log corrected, known issues consolidated.
-- Removed: `docs/ARCHITECTURE.md`, `docs/CODE_MAP.md`, `docs/PROJECT_MASTER_CONTEXT.md`; in this change also `docs/DECISIONS.md`, `docs/KNOWN_ISSUES.md`, `docs/PROJECT_BRAIN.md` (content migrated).
+## Completed (verified by the owner)
+- Filter operator rules in Domain (slice 1), build and tests passed.
+- Documentation reorganised into folders; index and update procedure in place.
 
-## In Progress
-- Documentation reorganisation step 2 (feature pages and guides). See the table in `docs/README.md`.
+## Completed (not compiled yet)
+- Slice 2: query filter rows to conditions in Domain (`FilterRequestBuilder`), used by `TableQueryViewModel.TryBuildRequest`; tests added.
 
 ## Remaining
 See `.ai/current-state.md` → Remaining.
 
-## Changed Files (this change)
-- Docs: `docs/README.md` (new), `docs/changes/doc-update-protocol.md` (new), `docs/reference/decision-log.md` (corrected), `docs/reference/known-issues.md` (new), `.ai/current-state.md`, `.ai/handoff.md`.
-- Removed: `docs/DECISIONS.md`, `docs/KNOWN_ISSUES.md`, `docs/PROJECT_BRAIN.md`.
+## Changed Files (slice 2)
+- Code: `src/FastDbExplorer.Domain/FilterRequestBuilder.cs` (new), `src/FastDbExplorer.Wpf/ViewModels/TableQueryViewModel.cs` (filter section only), `tests/FastDbExplorer.Tests/FilterRequestBuilderTests.cs` (new).
+- Docs: `docs/changes/change-map.md`, `.ai/current-state.md`, `.ai/handoff.md`.
 
 ## Validation
-- Owner: build and tests passed (count not sent).
-- AI: static check of the new documents against the code (decision numbers, file names).
+- Owner: build and tests passed for slice 1; slice 2 awaits the owner's build.
+- AI: static review only.
 
 ## Known Issues
-See `reference/known-issues.md` and `architecture/standards-audit.md`.
+See `.ai/current-state.md` and `docs/architecture/standards-audit.md`.
 
 ## Decisions
-See `reference/decision-log.md` (D1 to D38) and `decisions/` (ADR-0001 to ADR-0007).
+See `docs/reference/decision-log.md` (D1 to D38) and `docs/decisions/` (ADR-0001 to ADR-0007).
 
 ## Assumptions
-- The feature pages (`CREDENTIALS.md`, `MONITORING.md` and others) still describe the current behaviour; they are checked when they are moved.
+- The `TableQueryViewModel` copy matches the branch except the filter section (checked by the diff of the pushed file against the read version; the owner's build confirms).
+- `FilterInput` and `FilterRequestBuilder` names do not clash with existing types (search done before writing).
 
 ## Next Action
-Slice 2 (domain first): map-tab rule to Domain with a test. Then the feature pages move, one folder step at a time.
+1. Owner builds and runs tests; reports the count and failures.
+2. If green: approve slice 3 (paging controller and map-send coordinator, with Domain/Application tests).
+3. Owner decides D38 before any view-model test.

@@ -4,8 +4,8 @@ Purpose: route a change to the smallest relevant scope. Read this before editing
 
 ## Explorer query
 ### If changing business rules (filter meaning, order, paging)
-Location: `Domain/FilterOperatorRules.cs` (operator inputs), `Domain/QueryModels.cs` (`FilterOperator`, `ColumnInfo`), `Infrastructure/SelectQueryBuilder.cs` (SQL), `TableQueryViewModel.TryBuildRequest` (request).
-Tests: `FilterOperatorRulesTests`, `QueryBuilderTests`.
+Location: `Domain/FilterOperatorRules.cs` (which operator needs which inputs), `Domain/FilterRequestBuilder.cs` (filter rows to conditions: column, value and second-value rules), `Domain/QueryModels.cs` (`FilterOperator`, `ColumnInfo`), `Infrastructure/SelectQueryBuilder.cs` (SQL), `TableQueryViewModel.TryBuildRequest` (only converts the screen rows into `FilterInput`).
+Tests: `FilterOperatorRulesTests`, `FilterRequestBuilderTests`, `QueryBuilderTests`.
 Docs: `features/explorer-export-and-layout.md`, `architecture/runtime-flows.md`.
 
 ### If changing the API (contracts between layers)
