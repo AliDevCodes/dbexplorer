@@ -2,41 +2,31 @@
 
 Branch: feature/geosent-live-map (the branch the owner tests)
 Commit: head of this branch (see `git log --oneline -5`).
-Task: standards audit and migration of the legacy documentation; first refactor slice (filter rules to Domain).
-Status: documentation migrated; legacy deletion in progress; code slice 1 done (not compiled).
+Task: reorganise `docs/`, make the update procedure explicit, correct the decision numbering; first refactor slice (filter rules to Domain) built and tested by the owner.
 
-## Completed (this phase)
-- Map tab loop fixed (8416448): the map-layers tab is a read-only mirror of the Excel tab. Owner confirmed.
-- Filter null fixed (15038c3); rule moved to Domain (5818b9d, FilterOperatorRules + tests). Owner test pending.
-- Map window crash fixes (4f427d8 and earlier). Owner confirmed the pop-out window works.
-- Shared "show on map" panel; smart export; Monitoring renamed in the UI.
-- Project brain structure; ADR-0001 to ADR-0007; reference docs; standards audit (`docs/architecture/standards-audit.md`).
-- Duplicate test files reverted (8a52610, c66f747); test inventory corrected (7f2e1fd).
+## Verified by the owner (this phase)
+- `dotnet build FastDbExplorer.slnx`: passed, no problem reported.
+- `dotnet test`: passed, no problem reported (exact count not sent; the new `FilterOperatorRulesTests` are included).
+- Map tab loop fixed (8416448); owner confirmed the crash is solved.
+- Map pop-out window works (owner confirmed).
+
+## Completed in this phase
+- Filter operator rules moved to Domain (5818b9d) with tests.
+- Standards read and applied; audit in `architecture/standards-audit.md`.
+- Legacy content migrated; ADR-0006 and ADR-0007 written.
+- Documentation reorganised into folders with an index (`docs/README.md`) and an update procedure (`changes/doc-update-protocol.md`).
+- Decision numbering corrected: D20 to D26 are the Excel decisions from the former `DECISIONS.md`; the earlier duplicates were removed.
 
 ## Remaining (in order)
-1. Owner builds and runs the tests; reports the result of `FilterOperatorRulesTests` and the existing suite.
-2. Slice 2: move the map-tab rule (N1) from `MapViewModel` to Domain with a test (S4).
-3. Owner decision D38: test target for view models (recommended: Domain first, as ADR-0007).
-4. Slice 3: split `TableQueryViewModel` (S5) starting with `QueryFilterBuilder` (testable).
-5. Refactor R2: move presentation data out of Domain (S6).
-6. R5: one registration per interface (S8).
-7. R7: pin NuGet versions; resolve the Pkcs advisory.
-8. Security review written (S10); structured logs (S11); per-screen states (S12); reduced motion (S13).
-9. OSM PBF converter (not started).
+1. Slice 2 (domain first): move the map-tab rule (N1) from `MapViewModel` into Domain, with a test (audit S4).
+2. Slice 3: split `TableQueryViewModel`, starting with a Domain query-filter builder (S5).
+3. Owner decision D38 (test target) before any view-model test.
+4. Documentation: move the feature pages into `features/`, `REVIEW_2026-10.md` into `architecture/`, `RUNBOOK.md` into `guides/`, `CHANGELOG.md` into `release/`; read and delete `CURRENT_STATE.md`, `PROGRESS.md`, `FEATURES.md`.
+5. R2: move presentation data out of Domain (S6). R5: one registration per interface (S8). R7: pin NuGet versions.
+6. Security review (S10), structured logs (S11), per-screen states (S12), reduced motion (S13).
 
-## Known issues (see the standards audit for the full list)
-- View models and views have no automated tests (S2).
-- `MapViewModel` and `TableQueryViewModel` are large (S5).
-- Domain holds presentation data and a JSON attribute (S6).
-- Pkcs 9.0.11 advisory (transitive).
-- CSV from Excel may open as one column with a comma delimiter on some regional settings.
-- Explorer shows Persian dates, Monitoring shows ISO dates (decision pending).
-- `docs/REVIEW_2026-10.md` names the three legacy files in its scope; it is a dated snapshot and was not rewritten.
-
-## Last validation
-- Owner full run: 204 passed, 0 failed, before the latest slices.
-- Since then, not run: `FilterOperatorRulesTests` (new), and the changes of 15038c3 and 8416448 (owner reports them as fixed, tests not re-run).
-- AI validation: static review only; no build.
+## Known issues
+See `reference/known-issues.md` and `architecture/standards-audit.md`.
 
 ## Next recommended action
-Owner: build and run `dotnet test`; send the summary (count, failures with names). Then approve slice 2.
+Slice 2 (domain first), after the owner confirms the build and test count if needed.

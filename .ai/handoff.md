@@ -1,46 +1,38 @@
 # AI Handoff
 
 ## Current Goal
-Keep FastDbExplorer stable and safely changeable, following the senior-engineer standards. Current focus: owner test of the latest slices, then slice 2 (map-tab rule to Domain).
+Keep FastDbExplorer stable and changeable, following the senior-engineer standards. Domain first: move business rules out of the view models, one slice at a time, and keep the documents in step with each change.
 
 ## Repository State
-Branch: feature/geosent-live-map
-Commit: head of the branch (see `.ai/current-state.md`).
-Git status: documentation and the first code slice are pushed; the three legacy files are being deleted in this same series.
+Branch: feature/geosent-live-map. Commit: head of the branch (see `.ai/current-state.md`).
 
 ## Completed
-- Standards read in full (architecture-intelligence, engineering, git, ui-ux, ai) and applied: see `docs/architecture/standards-audit.md`.
-- Legacy content migrated: decision log (D1-D38), lessons (L1-L9, N1-N14), map formats and page contract, runtime flows, ADR-0006 and ADR-0007.
-- First refactor slice: filter operator rules in Domain (`FilterOperatorRules`) with tests.
-- Two duplicate test files found and reverted before they reached the owner's build.
+- Filter operator rules in Domain (5818b9d), tested by the owner (build and tests passed).
+- Documentation structure and index (`docs/README.md`), update procedure (`docs/changes/doc-update-protocol.md`), decision log corrected, known issues consolidated.
+- Removed: `docs/ARCHITECTURE.md`, `docs/CODE_MAP.md`, `docs/PROJECT_MASTER_CONTEXT.md`; in this change also `docs/DECISIONS.md`, `docs/KNOWN_ISSUES.md`, `docs/PROJECT_BRAIN.md` (content migrated).
 
 ## In Progress
-- Owner test of the latest slices.
-- Deletion of the legacy files and their references (done in this series).
+- Documentation reorganisation step 2 (feature pages and guides). See the table in `docs/README.md`.
 
 ## Remaining
-See `.ai/current-state.md` → Remaining (slices 2 to 4, then R2, R5, R7, security and logs).
+See `.ai/current-state.md` → Remaining.
 
-## Changed Files (this phase)
-- Code: `Domain/FilterOperatorRules.cs`, `Wpf/ViewModels/FilterRowViewModel.cs`, `tests/FilterOperatorRulesTests.cs`.
-- Docs: `.ai/*`, `CLAUDE.md`, `docs/PROJECT_BRAIN.md`, `docs/architecture/*`, `docs/features/index.md`, `docs/changes/change-map.md`, `docs/decisions/*`, `docs/reference/*`, `docs/junior-guide.md`.
-- Removed: `docs/ARCHITECTURE.md`, `docs/CODE_MAP.md`, `docs/PROJECT_MASTER_CONTEXT.md` (content migrated; see the decision log and `docs/reference/`).
+## Changed Files (this change)
+- Docs: `docs/README.md` (new), `docs/changes/doc-update-protocol.md` (new), `docs/reference/decision-log.md` (corrected), `docs/reference/known-issues.md` (new), `.ai/current-state.md`, `.ai/handoff.md`.
+- Removed: `docs/DECISIONS.md`, `docs/KNOWN_ISSUES.md`, `docs/PROJECT_BRAIN.md`.
 
 ## Validation
-- Owner: 204/204 at the last full run (before the latest slices).
-- AI: static review only.
+- Owner: build and tests passed (count not sent).
+- AI: static check of the new documents against the code (decision numbers, file names).
 
 ## Known Issues
-See `.ai/current-state.md` and `docs/architecture/standards-audit.md`.
+See `reference/known-issues.md` and `architecture/standards-audit.md`.
 
 ## Decisions
-See `docs/reference/decision-log.md` (D1 to D38) and `docs/decisions/` (ADR-0001 to ADR-0007).
+See `reference/decision-log.md` (D1 to D38) and `decisions/` (ADR-0001 to ADR-0007).
 
 ## Assumptions
-- Module and feature inventory matches the branch (verify with `git ls-files`, see `docs/junior-guide.md`).
-- `FilterOperator` names used in the new Domain file match `Domain/QueryModels.cs` (checked at the time of writing).
+- The feature pages (`CREDENTIALS.md`, `MONITORING.md` and others) still describe the current behaviour; they are checked when they are moved.
 
 ## Next Action
-1. Owner builds and runs `dotnet test`; reports results.
-2. If green: approve slice 2 (map-tab rule to Domain).
-3. Owner decides D38 (test target) when slice 3 starts.
+Slice 2 (domain first): map-tab rule to Domain with a test. Then the feature pages move, one folder step at a time.
