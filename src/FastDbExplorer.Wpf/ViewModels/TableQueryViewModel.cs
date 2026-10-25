@@ -568,6 +568,7 @@ public sealed partial class TableQueryViewModel : ObservableObject
         return value[..length] + "…";
     }
 
+    /// <summary>Turns the filter rows of the screen into a page request. The rules are in Domain (FilterRequestBuilder).</summary>
     private bool TryBuildRequest(out PageRequest request, out IReadOnlyList<string> displayColumns)
     {
         request = null!;
@@ -576,15 +577,13 @@ public sealed partial class TableQueryViewModel : ObservableObject
         var selected = Columns.Where(c => c.IsSelected).Select(c => c.Name).ToList();
         if (selected.Count == 0) { ErrorMessage = Strings.ErrNoColumns; return false; }
 
-        var filters = new List<FilterCondition>();
-        foreach (var row in Filters)
+        var inputs = Filters
+            .Select(row => new FilterInput(row.Column, row.SelectedOperator.Operator, row.Value, row.Value2))
+            .ToList();
+        if (!FilterRequestBuilder.TryBuild(inputs, out var filters, out _))
         {
-            var incomplete = row.Column is null
-                || (row.NeedsValue && string.IsNullOrWhiteSpace(row.Value))
-                || (row.NeedsSecondValue && string.IsNullOrWhiteSpace(row.Value2));
-            if (incomplete) { ErrorMessage = Strings.ErrIncompleteFilter; return false; }
-            filters.Add(new FilterCondition(row.Column!, row.SelectedOperator.Operator,
-                row.NeedsValue ? row.Value : null, row.NeedsSecondValue ? row.Value2 : null));
+            ErrorMessage = Strings.ErrIncompleteFilter;
+            return false;
         }
 
         IReadOnlyList<string> order;
