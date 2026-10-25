@@ -1,5 +1,5 @@
 # ADR-0003 Opt-in encrypted SQL passwords (DPAPI)
-Status: accepted; supersedes the rule "no passwords on disk" for this one case
+Status: accepted; supersedes the rule "no passwords on disk" for this one case (decision D28)
 Date: 2026-10
 
 Context: the owner wants saved connections without typing the SQL password on every connect. The original rule forbade any password on disk. The app runs only on the owner's Windows user account.
@@ -10,7 +10,7 @@ Options:
 3. Encrypt with Windows DPAPI (CurrentUser scope + app entropy) in a separate file, opt-in per profile, default off.
 4. Own encryption with a user-entered master password. Rejected: more code to own, more failure modes.
 
-Decision: option 3. Details: `docs/CREDENTIALS.md`.
+Decision: option 3. Details: `features/credentials.md`.
 - Vault file `%AppData%\FastDbExplorer\credentials.json`, keyed by profile ID, Base64 DPAPI blobs.
 - The password is saved only after the server accepted it; a rejected stored password is removed.
 - Changing server or user removes the stored password.

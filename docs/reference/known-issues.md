@@ -15,7 +15,7 @@ Known limits that are not bugs in the code but must be remembered. Migrated from
 - Very large table lists load item by item; virtualisation is on but not benchmarked.
 - Connecting: `localhost` uses Shared Memory; `127.0.0.1` needs TCP/IP enabled in SQL Server Configuration Manager (restart the SQL service). Named instance with IP: `127.0.0.1\SQLEXPRESS`; with port: `127.0.0.1,1433` (lesson L3).
 
-## Monitoring (details in `features/MONITORING.md` once moved)
+## Monitoring (details in `features/monitoring.md`)
 - Monitors run only while the app is open and connected.
 - `SELECT MAX(column)` on an un-indexed column of a huge table scans it (30 s timeout). Choose an indexed watermark column.
 - Numeric (identity) watermarks can miss rows committed out of order; date watermarks are protected by a 30 s settle time.

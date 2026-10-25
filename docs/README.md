@@ -20,19 +20,13 @@ Start with `junior-guide.md`. This page says what each folder and file is for, a
 4. `changes/change-map.md` — where your change belongs.
 5. `changes/doc-update-protocol.md` — which documents to update after your change.
 
-## Current files (status of the reorganisation)
-| File | Status | Target |
-|---|---|---|
-| `junior-guide.md` | active | stays (entry point) |
-| `architecture/*` | active | in place |
-| `decisions/*` | active | in place |
-| `features/index.md`, `features/coordinate-layers.md` | active | in place |
-| `changes/*` | active | in place |
-| `reference/*` | active | in place |
-| `REVIEW_2026-10.md` | active (dated review) | move to `architecture/review-2026-10.md` |
-| `CREDENTIALS.md`, `DATETIME_PICKER.md`, `DEMO_LOGIN.md`, `EXPORT_AND_LAYOUT.md`, `MAP_UI.md`, `MAP_TOOLS.md`, `MAP_SEND_UX.md`, `MONITORING.md`, `NAV_REDESIGN.md` | active feature pages | move to `features/` (next step) |
-| `RUNBOOK.md` | active | move to `guides/runbook.md` |
-| `CHANGELOG.md` | active history | move to `release/CHANGELOG.md` |
-| `CURRENT_STATE.md`, `PROGRESS.md`, `FEATURES.md` | superseded; content migrated (see `features/coordinate-layers.md` and `features/index.md`) | deleted in this change |
+## Status of the reorganisation
+| File | Status |
+|---|---|
+| `junior-guide.md`, `architecture/*`, `decisions/*`, `features/*`, `changes/*`, `reference/*` | in place |
+| `RUNBOOK.md` | still in the root; move to `guides/runbook.md` (next step) |
+| `CHANGELOG.md` | still in the root; move to `release/CHANGELOG.md` (next step) |
+| `REVIEW_2026-10.md` | still in the root; move to `architecture/review-2026-10.md` (next step) |
+| Nine feature pages (`CREDENTIALS.md`, `MONITORING.md`, ...) | moved to `features/`; the root copies are deleted in the commits that follow this one |
 
-The reorganisation proceeds in steps so that no content is lost and no link breaks. Each step names the files it moves.
+The reorganisation proceeds in steps so that no content is lost and no link breaks.
