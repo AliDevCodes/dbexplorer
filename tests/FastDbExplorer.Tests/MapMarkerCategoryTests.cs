@@ -1,31 +1,32 @@
-using FastDbExplorer.Domain;
+using FastDbExplorer.Wpf.Presentation;
 using Xunit;
 
 namespace FastDbExplorer.Tests;
 
+/// <summary>The icon folders and the glyph library (WPF drawing data).</summary>
 public sealed class MapMarkerCategoryTests
 {
     [Fact]
     public void Every_icon_belongs_to_exactly_one_category()
     {
-        var all = MapMarkerCatalog.Categories.SelectMany(c => c.Icons.Select(i => i.Key)).ToList();
+        var all = MapMarkerGlyphs.Categories.SelectMany(c => c.Glyphs.Select(i => i.Key)).ToList();
 
         Assert.Equal(all.Count, all.Distinct().Count());
-        Assert.Equal(MapMarkerCatalog.Icons.Count, all.Count);
-        Assert.Equal(all.OrderBy(k => k), MapMarkerCatalog.Icons.Select(i => i.Key).OrderBy(k => k));
+        Assert.Equal(MapMarkerGlyphs.All.Count, all.Count);
+        Assert.Equal(all.OrderBy(k => k), MapMarkerGlyphs.All.Select(i => i.Key).OrderBy(k => k));
     }
 
     [Fact]
     public void Every_category_has_at_least_one_icon_and_the_default_category_exists()
     {
-        Assert.All(MapMarkerCatalog.Categories, c => Assert.NotEmpty(c.Icons));
-        Assert.Contains(MapMarkerCatalog.Categories, c => c.Key == MapMarkerCatalog.DefaultCategory);
+        Assert.All(MapMarkerGlyphs.Categories, c => Assert.NotEmpty(c.Glyphs));
+        Assert.Contains(MapMarkerGlyphs.Categories, c => c.Key == MapMarkerGlyphs.DefaultCategory);
     }
 
     [Fact]
     public void Category_keys_are_unique()
     {
-        var keys = MapMarkerCatalog.Categories.Select(c => c.Key).ToList();
+        var keys = MapMarkerGlyphs.Categories.Select(c => c.Key).ToList();
         Assert.Equal(keys.Count, keys.Distinct().Count());
     }
 
@@ -55,12 +56,12 @@ public sealed class MapMarkerCategoryTests
     [InlineData("flag")]
     [InlineData("target")]
     public void Keys_saved_by_earlier_versions_still_exist(string key) =>
-        Assert.NotNull(MapMarkerCatalog.Find(key));
+        Assert.NotNull(MapMarkerGlyphs.PathFor(key));
 
     [Fact]
-    public void Every_new_icon_path_is_plain_svg_path_data_ending_with_a_close()
+    public void Every_glyph_path_is_plain_svg_path_data_ending_with_a_close()
     {
-        foreach (var icon in MapMarkerCatalog.Icons)
+        foreach (var icon in MapMarkerGlyphs.All)
         {
             Assert.Matches(@"^M[MmLlHhVvCcSsAaZz0-9eE.,\s+\-]+$", icon.PathData);
             Assert.EndsWith("z", icon.PathData.TrimEnd());
@@ -70,6 +71,6 @@ public sealed class MapMarkerCategoryTests
     [Fact]
     public void The_icon_library_is_large_enough_to_be_useful()
     {
-        Assert.True(MapMarkerCatalog.Icons.Count >= 50, $"only {MapMarkerCatalog.Icons.Count} icons");
+        Assert.True(MapMarkerGlyphs.All.Count >= 50, $"only {MapMarkerGlyphs.All.Count} icons");
     }
 }

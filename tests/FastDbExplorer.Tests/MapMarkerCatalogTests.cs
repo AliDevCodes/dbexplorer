@@ -1,9 +1,11 @@
 using FastDbExplorer.Domain;
 using FastDbExplorer.Infrastructure.CoordinateLayers;
+using FastDbExplorer.Wpf.Presentation;
 using Xunit;
 
 namespace FastDbExplorer.Tests;
 
+/// <summary>Marker drawing data (WPF) and marker style persistence (Infrastructure).</summary>
 public sealed class MapMarkerCatalogTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "fdbx-markers-" + Guid.NewGuid().ToString("N"));
@@ -11,10 +13,10 @@ public sealed class MapMarkerCatalogTests : IDisposable
     [Fact]
     public void Icon_keys_are_unique_and_every_path_is_plain_svg_path_data()
     {
-        Assert.Equal(MapMarkerCatalog.Icons.Count, MapMarkerCatalog.Icons.Select(i => i.Key).Distinct().Count());
-        Assert.NotEmpty(MapMarkerCatalog.Icons);
+        Assert.Equal(MapMarkerGlyphs.All.Count, MapMarkerGlyphs.All.Select(i => i.Key).Distinct().Count());
+        Assert.NotEmpty(MapMarkerGlyphs.All);
 
-        foreach (var icon in MapMarkerCatalog.Icons)
+        foreach (var icon in MapMarkerGlyphs.All)
         {
             Assert.Matches(@"^M[MmLlHhVvCcSsAaZz0-9eE.,\s+\-]+$", icon.PathData); // nothing but path commands and numbers
             Assert.EndsWith("z", icon.PathData.TrimEnd());
@@ -24,8 +26,8 @@ public sealed class MapMarkerCatalogTests : IDisposable
     [Fact]
     public void Palette_colours_are_valid_and_unique()
     {
-        Assert.All(MapMarkerCatalog.Palette, c => Assert.True(MapMarkerCatalog.IsValidColor(c), c));
-        Assert.Equal(MapMarkerCatalog.Palette.Count, MapMarkerCatalog.Palette.Distinct().Count());
+        Assert.All(MapMarkerRules.Palette, c => Assert.True(MapMarkerRules.IsValidColor(c), c));
+        Assert.Equal(MapMarkerRules.Palette.Count, MapMarkerRules.Palette.Distinct().Count());
     }
 
     [Theory]
@@ -35,19 +37,19 @@ public sealed class MapMarkerCatalogTests : IDisposable
     [InlineData("#12345")]
     [InlineData("#12345G")]
     [InlineData("url(javascript:alert(1))")]
-    public void Invalid_colours_are_rejected(string? value) => Assert.False(MapMarkerCatalog.IsValidColor(value));
+    public void Invalid_colours_are_rejected(string? value) => Assert.False(MapMarkerRules.IsValidColor(value));
 
     [Fact]
     public void Effective_colour_is_the_chosen_one_or_a_stable_palette_colour()
     {
         var id = Guid.NewGuid();
 
-        Assert.Equal("#DC2626", MapMarkerCatalog.EffectiveColor(id, "#dc2626"));
+        Assert.Equal("#DC2626", MapMarkerRules.EffectiveColor(id, "#dc2626"));
 
-        var automatic = MapMarkerCatalog.EffectiveColor(id, null);
-        Assert.Contains(automatic, MapMarkerCatalog.Palette);
-        Assert.Equal(automatic, MapMarkerCatalog.EffectiveColor(id, "not-a-colour"));
-        Assert.Equal(automatic, MapMarkerCatalog.EffectiveColor(id, null)); // same id, same colour every time
+        var automatic = MapMarkerRules.EffectiveColor(id, null);
+        Assert.Contains(automatic, MapMarkerRules.Palette);
+        Assert.Equal(automatic, MapMarkerRules.EffectiveColor(id, "not-a-colour"));
+        Assert.Equal(automatic, MapMarkerRules.EffectiveColor(id, null)); // same id, same colour every time
     }
 
     [Fact]

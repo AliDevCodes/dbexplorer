@@ -1,9 +1,10 @@
 using FastDbExplorer.Domain;
+using FastDbExplorer.Wpf.Presentation;
 using Xunit;
 
 namespace FastDbExplorer.Tests;
 
-/// <summary>Marker rules (Domain): colours, icon keys and their consistency with the glyph catalogue.</summary>
+/// <summary>Marker rules (Domain) and their consistency with the glyph data (WPF).</summary>
 public class MapMarkerRulesTests
 {
     [Theory]
@@ -57,11 +58,11 @@ public class MapMarkerRulesTests
         => Assert.Equal(expected, MapMarkerRules.IsKnownIconKey(key));
 
     [Fact]
-    public void The_known_keys_are_exactly_the_keys_of_the_glyph_catalogue()
+    public void The_known_keys_are_exactly_the_keys_of_the_glyph_data()
     {
-        // Consistency guard for the split: every key the rules accept must have a glyph, and no glyph may be unknown to the rules.
-        var catalogueKeys = MapMarkerCatalog.Icons.Select(icon => icon.Key).ToHashSet(StringComparer.Ordinal);
+        // Consistency guard: every key the rules accept has a glyph, and no glyph is unknown to the rules.
+        var glyphKeys = MapMarkerGlyphs.All.Select(glyph => glyph.Key).ToHashSet(StringComparer.Ordinal);
 
-        Assert.True(MapMarkerRules.KnownIconKeys.SetEquals(catalogueKeys));
+        Assert.True(MapMarkerRules.KnownIconKeys.SetEquals(glyphKeys));
     }
 }
