@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- net10.0-windows: the test project may reference the WPF project (view-model and catalogue tests, ADR-0007 / decision D38). -->
+    <!-- net10.0-windows: the test project references the WPF project (drawing data tests, ADR-0007 / decision D38). -->
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
@@ -12,5 +12,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\FastDbExplorer.Infrastructure\FastDbExplorer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\FastDbExplorer.Wpf\FastDbExplorer.Wpf.csproj" />
   </ItemGroup>
 </Project>
