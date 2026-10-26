@@ -1,40 +1,39 @@
 # AI Handoff
 
 ## Current Goal
-Keep FastDbExplorer stable and changeable, following the senior-engineer standards. Business rules out of view models, one slice at a time; documents updated with every change.
+Keep FastDbExplorer stable and changeable, following the senior-engineer standards: business rules in Domain, drawing data in the presentation layer, documents kept in step with every change.
 
 ## Repository State
 Branch: feature/geosent-live-map. Commit: head of the branch (see `.ai/current-state.md`).
 
 ## Completed (verified by the owner)
-- Slice 1: filter operator rules in Domain; build and tests passed.
-- Documentation reorganised into folders; index and update procedure in place.
+- Refactor slices 1 to 3 (filter rules, query request builder, map-send and paging rules): build and 263 of 263 tests passed.
+- Test project on net10.0-windows: 263 of 263 passed.
 
 ## Completed (not compiled yet)
-- Slice 2: filter rows to conditions in Domain (`FilterRequestBuilder`), used by `TableQueryViewModel`.
-- Slice 3: map-send rules and keyset paging rule in Domain (`MapSendRules`, `KeysetPaging`), used by `TableQueryViewModel`; tests added.
+- Step 4a of the catalogue split: `Domain/MapMarkerRules.cs`, `tests/MapMarkerRulesTests.cs`, and the store uses the rules.
 
 ## Remaining
-See `.ai/current-state.md` → Remaining.
+See `.ai/current-state.md` → Remaining (step 4b next: drawing data to WPF).
 
-## Changed Files (slices 2 and 3)
-- Code: `Domain/FilterRequestBuilder.cs`, `Domain/MapSendRules.cs` (new); `Wpf/ViewModels/TableQueryViewModel.cs` (rules delegated; full file re-pushed from the branch version); tests `FilterRequestBuilderTests.cs`, `MapSendRulesTests.cs`, `KeysetPagingTests.cs` (new).
+## Changed Files (step 4a)
+- Code: `src/FastDbExplorer.Domain/MapMarkerRules.cs` (new), `tests/FastDbExplorer.Tests/MapMarkerRulesTests.cs` (new), `src/FastDbExplorer.Infrastructure/CoordinateLayers/JsonCoordinateLayerStore.cs` (ToLayer).
 - Docs: `docs/changes/change-map.md`, `.ai/current-state.md`, `.ai/handoff.md`.
 
 ## Validation
-- Owner: build and tests passed for slice 1; slices 2 and 3 await the owner's build.
-- AI: static review only. Risk: the whole `TableQueryViewModel.cs` was re-written; a copy error would appear only in the build.
+- Owner: build and tests passed before step 4a. Step 4a awaits the owner's build.
+- AI: static review only.
 
 ## Known Issues
 See `.ai/current-state.md` and `docs/architecture/standards-audit.md`.
 
 ## Decisions
-See `docs/reference/decision-log.md` (D1 to D38) and `docs/decisions/` (ADR-0001 to ADR-0007).
+See `docs/reference/decision-log.md` and `docs/decisions/`. Open: the duplicate palette in the catalogue is temporary (removed in 4b).
 
 ## Assumptions
-- New type names (`FilterInput`, `FilterRequestBuilder`, `MapSendRules`, `KeysetPaging`) do not clash with existing names (search done before writing; the build confirms).
-- The rest of `TableQueryViewModel.cs` matches the branch (copied from the version read earlier).
+- The 68 icon keys in `MapMarkerRules` equal the catalogue keys (checked by a test that the owner runs).
+- The `JsonCoordinateLayerStore` change is limited to `ToLayer` (the file was copied from the branch version).
 
 ## Next Action
-1. Owner builds and runs tests; reports the count and failures.
-2. If green: decide whether to continue with the separate map-send coordinator, or move to D38.
+1. Owner builds and runs tests; reports the count (expected 279) and any failure.
+2. If green: step 4b (drawing data to WPF).

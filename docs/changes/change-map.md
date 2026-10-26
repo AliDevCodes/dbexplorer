@@ -54,6 +54,12 @@ Location: `Domain/GeoMath.cs`, `Domain/CoordinateLayers.cs`.
 Tests: `CoordinateRenderingTests`, `CoordinateLayerTests`. Decision: ADR-0006 (do not change the sphere radius or the segment count without a new ADR).
 Docs: `features/coordinate-layers.md`.
 
+### If changing marker colours or icon keys (what a layer may store)
+Location: `Domain/MapMarkerRules.cs` (palette, valid colour, known icon keys). The store checks these rules: `Infrastructure/CoordinateLayers/JsonCoordinateLayerStore.cs`.
+Rule: icon keys are stored in files; never rename a key or reuse it for another shape. A new icon needs a key in `MapMarkerRules.KnownIconKeys` AND a drawing entry in the catalogue; the test `MapMarkerRulesTests` fails if they differ.
+Tests: `MapMarkerRulesTests`, `MapMarkerCatalogTests`, `MapMarkerCategoryTests`.
+Note: the drawing data (SVG paths) still sits in `Domain/MapMarkerCatalog.cs`; it moves to WPF in step 4b.
+
 ### If changing the pop-out window or WebView2 lifecycle
 Location: `Views/MapView.xaml.cs` (`ReleaseWebView`, `OpenDetachedWindow`), `Views/MapWindow.xaml.cs`, `MainWindow.xaml.cs` (`SyncMapHost`).
 Rules: no disposal inside the event that asked for it; one WebView2 at a time; the Map section copy shows the note while the window is open. ADR-0004.
@@ -87,6 +93,7 @@ Tests: `CredentialVaultTests`. Docs: `features/credentials.md`, ADR-0003.
 - Single WebView2 at a time and deferred disposal (ADR-0004).
 - The map page's network rule (no fetch at run time).
 - Coordinate rules and the sphere radius of ADR-0006.
+- Existing icon keys (stored in user files).
 
 ## Before every commit (checklist)
 1. Usings of new files checked. 2. XAML resource keys and `Strings.X` checked. 3. `x:Name` used in code-behind exists. 4. Search before create done (lesson N11). 5. Docs in this map updated, following `doc-update-protocol.md`. 6. `.ai/change-manifest.md` and `.ai/current-state.md` updated. 7. Commit message says "not compiled" if the owner has not built it.
