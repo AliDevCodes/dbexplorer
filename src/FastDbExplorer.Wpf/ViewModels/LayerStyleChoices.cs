@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.Presentation;
 using FastDbExplorer.Wpf.Services;
 
 namespace FastDbExplorer.Wpf.ViewModels;
@@ -74,15 +75,15 @@ public static class LayerStyleChoices
     public static List<IconCategoryChoice> BuildIconCategories(Action<string?> onSelect, bool includeDefault)
     {
         var categories = new List<IconCategoryChoice>();
-        foreach (var category in MapMarkerCatalog.Categories)
+        foreach (var category in MapMarkerGlyphs.Categories)
         {
-            var icons = category.Icons.Select(icon => new IconChoice(onSelect, icon.Key)).ToList();
-            if (includeDefault && category.Key == MapMarkerCatalog.DefaultCategory) icons.Insert(0, new IconChoice(onSelect, null));
+            var icons = category.Glyphs.Select(glyph => new IconChoice(onSelect, glyph.Key)).ToList();
+            if (includeDefault && category.Key == MapMarkerGlyphs.DefaultCategory) icons.Insert(0, new IconChoice(onSelect, null));
             categories.Add(new IconCategoryChoice(category.Key, MapUiStrings.CategoryName(category.Key), icons));
         }
         return categories;
     }
 
     public static List<ColorChoice> BuildColorChoices(Action<string> onSelect) =>
-        [.. MapMarkerCatalog.Palette.Select(hex => new ColorChoice(onSelect, hex))];
+        [.. MapMarkerRules.Palette.Select(hex => new ColorChoice(onSelect, hex))];
 }

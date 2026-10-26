@@ -1,9 +1,9 @@
 using System.Windows.Media;
-using FastDbExplorer.Domain;
+using FastDbExplorer.Wpf.Presentation;
 
 namespace FastDbExplorer.Wpf.Services;
 
-/// <summary>WPF-side cache: turns the catalog's path data and colours into frozen Geometry / Brush objects (UI thread only).</summary>
+/// <summary>WPF-side cache: turns the glyph path data and colours into frozen Geometry / Brush objects (UI thread only).</summary>
 public static class MapIconGeometry
 {
     private static readonly Dictionary<string, Geometry> ShapeCache = [];
@@ -15,12 +15,12 @@ public static class MapIconGeometry
         if (key is null) return null;
         if (ShapeCache.TryGetValue(key, out var cached)) return cached;
 
-        var icon = MapMarkerCatalog.Find(key);
-        if (icon is null) return null;
+        var path = MapMarkerGlyphs.PathFor(key);
+        if (path is null) return null;
 
         try
         {
-            var shape = Geometry.Parse(icon.PathData);
+            var shape = Geometry.Parse(path);
             shape.Freeze();
             ShapeCache[key] = shape;
             return shape;
