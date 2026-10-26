@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using FastDbExplorer.Application.CoordinateLayers;
 using FastDbExplorer.Domain;
 using FastDbExplorer.Wpf.Localization;
+using FastDbExplorer.Wpf.Presentation;
 using FastDbExplorer.Wpf.Services;
 using FastDbExplorer.Wpf.ViewModels;
 using Microsoft.Web.WebView2.Core;
@@ -545,11 +546,11 @@ public partial class MapView : UserControl
         var shape = MapSourceStyles.Shape(kind);
         // A monitor's results take the monitor's own icon and colour; without them they keep the bell and rose look.
         var monitoring = kind == MapLayerKind.Monitoring;
-        var iconPath = (monitoring ? MapMarkerCatalog.Find(layer.IconKey)?.PathData : null)
-                       ?? MapSourceStyles.FixedGlyph(kind) ?? MapMarkerCatalog.Find(layer.IconKey)?.PathData;
-        if (iconPath is null && shape != "circle") iconPath = MapMarkerCatalog.Find("dot")?.PathData; // pin/diamond/square always carry a glyph
-        var color = monitoring && MapMarkerCatalog.IsValidColor(layer.Color) ? layer.Color!.ToUpperInvariant()
-                    : MapSourceStyles.FixedColor(kind) ?? MapMarkerCatalog.EffectiveColor(layer.Id, layer.Color);
+        var iconPath = (monitoring ? MapMarkerGlyphs.PathFor(layer.IconKey) : null)
+                       ?? MapSourceGlyphs.Fixed(kind) ?? MapMarkerGlyphs.PathFor(layer.IconKey);
+        if (iconPath is null && shape != "circle") iconPath = MapMarkerGlyphs.PathFor("dot"); // pin/diamond/square always carry a glyph
+        var color = monitoring && MapMarkerRules.IsValidColor(layer.Color) ? layer.Color!.ToUpperInvariant()
+                    : MapSourceStyles.FixedColor(kind) ?? MapMarkerRules.EffectiveColor(layer.Id, layer.Color);
 
         Post(new
         {
