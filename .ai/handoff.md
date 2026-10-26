@@ -7,33 +7,32 @@ Keep FastDbExplorer stable and changeable, following the senior-engineer standar
 Branch: feature/geosent-live-map. Commit: head of the branch (see `.ai/current-state.md`).
 
 ## Completed (verified by the owner)
-- Refactor slices 1 to 3 (filter rules, query request builder, map-send and paging rules): build and 263 of 263 tests passed.
-- Test project on net10.0-windows: 263 of 263 passed.
+- Refactor slices 1 to 3; step 4a. Tests: 283 of 283 passed.
 
 ## Completed (not compiled yet)
-- Step 4a of the catalogue split: `Domain/MapMarkerRules.cs`, `tests/MapMarkerRulesTests.cs`, and the store uses the rules.
+- Step 4b-1: WPF copy of the marker glyph data (`Wpf/Presentation/MapMarkerGlyphs.cs`, `MapSourceGlyphs.cs`), tests (`MapMarkerGlyphsTests.cs`), and the test project reference to the WPF project.
 
 ## Remaining
-See `.ai/current-state.md` → Remaining (step 4b next: drawing data to WPF).
+See `.ai/current-state.md` → Remaining (step 4b-2: consumers switch to the WPF data).
 
-## Changed Files (step 4a)
-- Code: `src/FastDbExplorer.Domain/MapMarkerRules.cs` (new), `tests/FastDbExplorer.Tests/MapMarkerRulesTests.cs` (new), `src/FastDbExplorer.Infrastructure/CoordinateLayers/JsonCoordinateLayerStore.cs` (ToLayer).
-- Docs: `docs/changes/change-map.md`, `.ai/current-state.md`, `.ai/handoff.md`.
+## Changed Files (step 4b-1)
+- Code: `src/FastDbExplorer.Wpf/Presentation/MapMarkerGlyphs.cs` (new), `src/FastDbExplorer.Wpf/Presentation/MapSourceGlyphs.cs` (new), `tests/FastDbExplorer.Tests/MapMarkerGlyphsTests.cs` (new), `tests/FastDbExplorer.Tests/FastDbExplorer.Tests.csproj` (reference added).
+- Docs: `.ai/current-state.md`, `.ai/handoff.md`.
 
 ## Validation
-- Owner: build and tests passed before step 4a. Step 4a awaits the owner's build.
+- Owner: 283 of 283 after step 4a. Step 4b-1 awaits the owner's build.
 - AI: static review only.
 
 ## Known Issues
 See `.ai/current-state.md` and `docs/architecture/standards-audit.md`.
 
 ## Decisions
-See `docs/reference/decision-log.md` and `docs/decisions/`. Open: the duplicate palette in the catalogue is temporary (removed in 4b).
+See `docs/reference/decision-log.md` and `docs/decisions/`.
 
 ## Assumptions
-- The 68 icon keys in `MapMarkerRules` equal the catalogue keys (checked by a test that the owner runs).
-- The `JsonCoordinateLayerStore` change is limited to `ToLayer` (the file was copied from the branch version).
+- The WPF project can be referenced by the test project (a WinExe reference); if not, the test is moved, not the data.
+- The glyph data is a copy of the Domain catalogue, verified by eye; the path test checks only that it is not empty (a parse test needs WPF types in the test project).
 
 ## Next Action
-1. Owner builds and runs tests; reports the count (expected 279) and any failure.
-2. If green: step 4b (drawing data to WPF).
+1. Owner builds and runs tests; reports the count and any error (including MSB messages about the new reference).
+2. If green: step 4b-2 (consumers). Each consumer file is read first.

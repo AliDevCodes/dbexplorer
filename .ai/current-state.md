@@ -2,31 +2,29 @@
 
 Branch: feature/geosent-live-map (the branch the owner tests)
 Commit: head of this branch (see `git log --oneline -5`).
-Task: refactor. Slices 1 to 3 built and tested by the owner (263 of 263 passed). Test project retargeted to net10.0-windows. Catalogue split step 4a in progress.
+Task: refactor. Slices 1 to 3 and step 4a verified by the owner (283 of 283 tests passed). Catalogue split step 4b-1 in progress.
 
 ## Verified by the owner
-- Build of the whole solution, including the WPF project: passed.
-- `dotnet test`: 263 of 263 passed (before step 4a).
-- Test project on net10.0-windows: 263 of 263 passed.
+- Whole solution builds (including WPF): passed (before step 4a).
+- `dotnet test` after step 4a: 283 of 283 passed.
 
 ## Done (NOT compiled yet; owner to build and test)
-- Step 4a: `Domain/MapMarkerRules.cs` (palette, valid colour, known icon keys) and `tests/MapMarkerRulesTests.cs` (16 new tests, including a consistency test with the catalogue keys).
-- Step 4a: `JsonCoordinateLayerStore` uses `MapMarkerRules` instead of the drawing catalogue (same behaviour).
+- Step 4b-1: `Wpf/Presentation/MapMarkerGlyphs.cs` (68 glyphs in 11 folders, WPF copy of the drawing data), `Wpf/Presentation/MapSourceGlyphs.cs` (fixed glyphs of Explorer and Monitoring), `tests/MapMarkerGlyphsTests.cs` (4 test methods, several cases).
+- The test project now references the WPF project. This is a NEW reference: if the build reports a problem with it (for example the WinExe reference), tell me the exact error; the reference can be removed and the tests moved.
 
 ## Owner test plan (after build)
-1. `dotnet build FastDbExplorer.slnx` and `dotnet test`. Expected: 263 + 16 = 279 tests pass.
-2. Layers: import an Excel layer, choose an icon and colour, restart the app: icon and colour are still there. A layer file with an unknown icon key loads with the default marker.
+1. `dotnet build FastDbExplorer.slnx` then `dotnet test`. Expected: 283 + new WPF glyph tests pass.
+2. If the WinExe reference causes an error, send the MSB or CS lines.
 
 ## Remaining (in order)
-1. Step 4b: move the SVG drawing data (`MapMarkerCatalog`) and the two fixed glyphs of `MapSourceStyles` to a WPF class; update `MapView.xaml.cs`, `MapIconGeometry`, `LayerStyleChoices`, `CoordinateLayerItem`, `MapViewModel` (palette). Remove the duplicate palette and colour functions from the catalogue.
-2. Step 4c: move the catalogue tests to the WPF side of the tests project; the consistency test keeps running.
-3. Decision D38 is resolved in practice (the test project targets net10.0-windows). View-model tests are now possible; plan them after 4c.
-4. Map-tab rule (N1) to Domain (audit S4). Map-send coordinator with I/O (optional).
-5. R2 (rest of presentation data out of Domain: Persian calendar codec, S6). R5: one registration per interface (S8). R7: pin NuGet versions.
-6. Security review (S10), structured logs (S11), per-screen states (S12), reduced motion (S13).
+1. Step 4b-2: switch the consumers to the WPF glyph data: `Wpf/Services/MapIconGeometry.cs`, `Wpf/ViewModels/LayerStyleChoices.cs`, `Wpf/ViewModels/CoordinateLayerItem.cs`, `Wpf/Views/MapView.xaml.cs` (PostCoordinateLayer), `Wpf/ViewModels/MapViewModel.cs` (palette). Each file is read before it is changed.
+2. Step 4b-3: delete the drawing data and the duplicate palette/colour functions from `Domain/MapMarkerCatalog.cs` and `Domain/MapSourceStyles.cs` (the glyph strings); move `MapMarkerCatalogTests` and `MapMarkerCategoryTests` to use the WPF data.
+3. Map-tab rule (N1) to Domain (audit S4). Map-send coordinator with I/O (optional).
+4. R2 (remaining presentation data out of Domain: Persian calendar codec, S6). R5 and R7.
+5. Security review (S10), structured logs (S11), per-screen states (S12), reduced motion (S13).
 
 ## Known issues
 See `reference/known-issues.md` and `architecture/standards-audit.md`.
 
 ## Next recommended action
-Owner: build and test; send the result. Then step 4b.
+Owner: build and test; send the result. Then step 4b-2.
