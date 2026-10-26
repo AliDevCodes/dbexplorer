@@ -129,10 +129,11 @@ public sealed class JsonCoordinateLayerStore : ICoordinateLayerStore
         }
 
         // The MapLayer constructor re-validates everything; it throws ArgumentException for a file that breaks the rules.
+        // The marker rules (known icon key, valid colour) come from Domain (MapMarkerRules), not from the drawing catalogue.
         var layer = new MapLayer(file.Id, file.Name, file.FileName, points, file.Visibility, file.RadiusMeters)
         {
-            IconKey = MapMarkerCatalog.Find(file.IconKey) is null ? null : file.IconKey,
-            Color = MapMarkerCatalog.IsValidColor(file.Color) ? file.Color!.ToUpperInvariant() : null
+            IconKey = MapMarkerRules.IsKnownIconKey(file.IconKey) ? file.IconKey : null,
+            Color = MapMarkerRules.IsValidColor(file.Color) ? file.Color!.ToUpperInvariant() : null
         };
         return layer;
     }
