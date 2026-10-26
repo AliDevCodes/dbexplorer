@@ -48,10 +48,10 @@ public sealed partial class CoordinateLayerItem : ObservableObject
 
     public string Summary => CoordinateStrings.Summary(Layer.Points.Count, Layer.FileName);
 
-    /// <summary>"1,250 نقطه"</summary>
+    /// <summary>The number of points as a chip text, with digit grouping.</summary>
     public string PointsText => CoordinateStrings.PointsChip(Layer.Points.Count);
 
-    /// <summary>"شعاع 500 متر" or "بدون شعاع" (the applied radius, not the text being typed).</summary>
+    /// <summary>The applied radius as a chip text, or the text for no radius (the applied radius, not the text being typed).</summary>
     public string RadiusSummary => CoordinateStrings.RadiusChip(Layer.RadiusMeters);
 
     /// <summary>One line under the name in the collapsed card.</summary>
@@ -74,7 +74,7 @@ public sealed partial class CoordinateLayerItem : ObservableObject
     /// <summary>The name shown on the picker button.</summary>
     public string CurrentIconName => HasIcon ? MapUiStrings.IconName(Layer.IconKey!) : MapUiStrings.DefaultMarker;
 
-    public Brush ColorBrush => MapIconGeometry.BrushFor(MapMarkerCatalog.EffectiveColor(Layer.Id, Layer.Color));
+    public Brush ColorBrush => MapIconGeometry.BrushFor(MapMarkerRules.EffectiveColor(Layer.Id, Layer.Color));
 
     [ObservableProperty] private IconCategoryChoice? _selectedIconCategory;
     [ObservableProperty] private bool _isIconPickerOpen;
@@ -183,7 +183,7 @@ public sealed partial class CoordinateLayerItem : ObservableObject
 
     private void RefreshStyleState()
     {
-        var effective = MapMarkerCatalog.EffectiveColor(Layer.Id, Layer.Color);
+        var effective = MapMarkerRules.EffectiveColor(Layer.Id, Layer.Color);
         foreach (var category in IconCategories)
             foreach (var choice in category.Icons)
                 choice.IsSelected = choice.Key == Layer.IconKey;
