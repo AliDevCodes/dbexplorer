@@ -426,7 +426,7 @@ public sealed partial class MapViewModel : ObservableObject
         }
 
         // A new layer starts with the next palette colour, so neighbouring layers are told apart at a glance.
-        layer.Color = MapMarkerCatalog.Palette[CoordinateLayers.Count % MapMarkerCatalog.Palette.Count];
+        layer.Color = MapMarkerRules.Palette[CoordinateLayers.Count % MapMarkerRules.Palette.Count];
         AddCoordinateLayer(layer);
         IsExcelTab = true;
         SetCoordinateStatus(
